@@ -1,0 +1,14 @@
+{
+  "name": "elevator-app",
+  "version": "0.1.0",
+  "description": "电梯模拟 + 控制 + 优化算法一体化系统",
+  "type": "module",
+  "scripts": {
+    "dev":   "vite simulation --port 5173 --open",
+    "serve": "npx http-server simulation -p 5173 -c-1 --cors -o",
+    "build": "vite build simulation"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

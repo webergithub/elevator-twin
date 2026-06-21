@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>电梯数字孪生 · ElevatorTwin — OPC Studio</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif}
+/* OPC Studio Nav */
+#nav-bar{position:fixed;top:0;left:0;right:0;z-index:300;height:44px;background:rgba(13,10,7,.96);border-bottom:0.5px solid rgba(201,148,74,.18);display:flex;align-items:center;padding:0 16px;gap:12px;backdrop-filter:blur(8px)}
+#nav-back{color:#c9944a;font-size:13px;font-weight:500;text-decoration:none;padding:4px 10px;border:0.5px solid rgba(201,148,74,.22);border-radius:7px;transition:background .15s}
+#nav-back:hover{background:rgba(201,148,74,.1)}
+#nav-title{flex:1;font-size:14px;font-weight:600;color:#e8b86d;letter-spacing:.3px}
+#lang-btn{background:rgba(201,148,74,.12);border:1px solid rgba(201,148,74,.18);color:#c9944a;font-size:12px;font-weight:600;padding:5px 12px;border-radius:8px;cursor:pointer}
+#lang-btn:hover{background:rgba(201,148,74,.22)}
+/* 3D canvas */
+#cc{position:fixed;top:44px;left:0;right:0;bottom:0}
+#cc canvas{display:block;width:100%!important;height:100%!important}
+/* Floating panels */
+.fp{position:fixed;background:rgba(13,10,7,.95);border:0.5px solid rgba(201,148,74,.2);border-radius:10px;color:#e6edf3;z-index:100;resize:both;overflow:hidden;min-width:160px;min-height:56px}
+.fp-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 11px;cursor:move;border-radius:10px 10px 0 0;border-bottom:0.5px solid rgba(255,255,255,.08);user-select:none;gap:8px;flex-shrink:0}
+.fp-hdr.mz{border-bottom:none!important;border-radius:10px!important}
+.fp-bd{padding:10px 12px;overflow-y:auto;max-height:calc(100% - 38px)}
+.fp-bd.mz{display:none}
+.fp-ttl{font-size:13px;font-weight:500;color:#c9944a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp-min{background:rgba(255,255,255,.08);border:none;color:#e6edf3;width:20px;height:20px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fp-min:hover{background:rgba(255,255,255,.18)}
+.fp label{display:block;font-size:12px;color:rgba(139,148,158,.9);margin:5px 0 2px}
+.fp input[type=range]{width:100%;accent-color:#c9944a;margin-bottom:3px}
+.fp select{width:100%;padding:4px 6px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:12px;margin-bottom:3px}
+.fpa{width:100%;margin-top:5px;padding:6px;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer}
+.ec{background:rgba(255,255,255,.05);border-radius:7px;padding:7px 9px;margin-bottom:5px}
+.ecf{font-size:20px;font-weight:500;color:#e6edf3;line-height:1.1}
+.dbar{height:3px;background:rgba(255,255,255,.1);border-radius:2px;margin:4px 0}
+.dfill{height:100%;background:#c9944a;border-radius:2px;transition:width .3s}
+.hr{border:0;border-top:0.5px solid rgba(255,255,255,.08);margin:8px 0}
+.frow{display:grid;grid-template-columns:62px 30px 1fr;gap:0 6px;padding:3px 4px;border-radius:4px;font-size:12px}
+.eli{font-size:11px;padding:2px 0;border-bottom:0.5px solid rgba(255,255,255,.05);line-height:1.35}
+@keyframes lb{0%,100%{opacity:1}50%{opacity:.2}}
+.ldot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3fb950;vertical-align:middle;animation:lb 1.4s ease-in-out infinite;flex-shrink:0}
+/* Y-pan strip */
+#ypan-ctrl{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:90;align-items:center;background:rgba(13,10,7,.85);border:0.5px solid rgba(201,148,74,.18);border-radius:20px;padding:4px 12px}
+#ypan-ctrl button{background:rgba(255,255,255,.08);border:none;color:#e6edf3;width:24px;height:24px;border-radius:12px;cursor:pointer;font-size:14px;line-height:1}
+#ypan-ctrl button:hover{background:rgba(201,148,74,.18)}
+#ypan-ctrl span{font-size:10px;color:rgba(139,148,158,.45);padding:0 2px;user-select:none}
+</style>
+</head>
+<body>
+
+<!-- OPC Studio Nav -->
+<div id="nav-bar">
+  <a id="nav-back" href="/">← 返回主页</a>
+  <span id="nav-title">电梯数字孪生</span>
+  <button id="lang-btn" onclick="toggleLang()">EN</button>
+</div>
+
+<div id="cc"></div>
+
+<!-- Y-pan strip -->
+<div id="ypan-ctrl">
+  <button onclick="panCamY(4)">↑</button>
+  <span id="ypan-lbl">视角移动</span>
+  <button onclick="panCamY(-4)">↓</button>
+  <button onclick="resetCamY()" style="width:auto;padding:0 8px;font-size:10px;border-radius:10px" id="ypan-rst">复位</button>
+  <span>·</span>
+  <span id="ypan-hint">右键拖拽平移</span>
+</div>
+
+<!-- ⚙ Config -->
+<div class="fp" id="p-cfg" style="top:56px;left:12px;width:242px">
+  <div class="fp-hdr" id="h-cfg"><span class="fp-ttl" data-zh="⚙ 配置" data-en="⚙ Config">⚙ 配置</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd" style="max-height:calc(100vh - 100px);overflow-y:auto">
+    <label><span data-zh="楼层数:" data-en="Floors:">楼层数:</span> <span id="evf">10</span></label><input type="range" id="esfl" min="4" max="20" value="10">
+    <label><span data-zh="电梯数量:" data-en="Elevators:">电梯数量:</span> <span id="eve">3</span></label><input type="range" id="esel" min="1" max="5" value="3">
+    <label><span data-zh="批次间隔(s):" data-en="Batch Rate(s):">批次间隔(s):</span> <span id="evs">5</span></label><input type="range" id="essl" min="2" max="15" value="5">
+    <label data-zh="调度算法" data-en="Dispatch Algorithm">调度算法</label>
+    <select id="ealgo">
+      <option value="LOOK" data-zh="LOOK 双向扫描" data-en="LOOK Scan">LOOK 双向扫描</option>
+      <option value="NEAREST" data-zh="最近轿厢" data-en="Nearest Car">最近轿厢</option>
+      <option value="DCS" data-zh="目标控制 DCS" data-en="Destination DCS">目标控制 DCS</option>
+    </select>
+    <button class="fpa" id="ebap" style="background:#c9944a;color:#0d0a07" data-zh="应用配置" data-en="Apply Config">应用配置</button>
+    <button class="fpa" id="ebem" style="background:#f85149;color:#fff" data-zh="全体紧急停梯" data-en="Emergency Stop All">全体紧急停梯</button>
+    <button class="fpa" id="ebcl" style="background:rgba(255,255,255,.08);color:#e6edf3;border:0.5px solid rgba(255,255,255,.18)" data-zh="清除 / 恢复" data-en="Clear / Resume">清除 / 恢复</button>
+    <button class="fpa" onclick="dispatchAll()" style="background:rgba(201,148,74,.12);color:#c9944a;border:0.5px solid rgba(201,148,74,.35)" data-zh="⚡ 一键调度" data-en="⚡ Dispatch All">⚡ 一键调度</button>
+    <hr class="hr">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;padding:2px 0" onclick="toggleDynParams()">
+      <span id="dyn-title" style="font-size:13px;font-weight:500;color:#c9944a" data-zh="动态参数" data-en="Dynamic Params">动态参数</span>
+      <span id="edpt" style="font-size:11px;color:rgba(139,148,158,.6)">▶</span>
+    </div>
+    <div id="edynparams" style="display:none;margin-top:5px">
+      <button class="fpa" onclick="dblSpawn()" style="background:rgba(201,148,74,.1);color:#c9944a;border:0.5px solid rgba(201,148,74,.28)" data-zh="等待人数加倍" data-en="Double Spawn Rate">等待人数加倍</button>
+      <button class="fpa" onclick="resetSpawn()" style="background:rgba(255,255,255,.05);color:rgba(139,148,158,.8);border:0.5px solid rgba(255,255,255,.12);margin-top:3px" data-zh="重置倍数" data-en="Reset Rate">重置倍数</button>
+      <div id="floorwt-lbl" style="font-size:11px;color:rgba(139,148,158,.55);margin:5px 0 3px" data-zh="各层权重" data-en="Per-Floor Weight">各层权重</div>
+      <div id="floorparams"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 🧠 Smart Optimizer -->
+<div class="fp" id="p-opt" style="top:444px;left:12px;width:242px">
+  <div class="fp-hdr" id="h-opt"><span class="fp-ttl" style="color:#3fb950" data-zh="🧠 智能优化器" data-en="🧠 Smart Optimizer">🧠 智能优化器</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd">
+    <div style="font-size:12px;color:rgba(139,148,158,.8);margin-bottom:3px"><span data-zh="时段:" data-en="Period:">时段:</span> <span id="eperiod" style="color:#e6edf3">—</span></div>
+    <div style="font-size:12px;color:rgba(139,148,158,.7);margin-bottom:3px" data-zh="需求热图" data-en="Demand Map">需求热图</div>
+    <div id="edemand" style="display:flex;gap:1px;align-items:flex-end;height:32px;margin-bottom:5px;padding:2px;background:rgba(255,255,255,.04);border-radius:4px"></div>
+    <div style="font-size:12px;color:rgba(139,148,158,.8)" data-zh="建议待机楼层" data-en="Suggested Standby Floors">建议待机楼层</div>
+    <div id="eidle" style="font-size:12px;color:#3fb950;margin:3px 0 5px;word-break:break-word" data-zh="计算中…" data-en="Computing…">计算中…</div>
+    <div style="font-size:11px;color:rgba(139,148,158,.5)" id="eoptlast" data-zh="等待优化…" data-en="Awaiting optimization…">等待优化…</div>
+    <div style="font-size:11px;color:rgba(139,148,158,.4)" id="eoptcost"></div>
+    <button class="fpa" id="ebon" style="background:rgba(63,185,80,.1);color:#3fb950;border:0.5px solid rgba(63,185,80,.35)" data-zh="立即优化" data-en="Optimize Now">立即优化</button>
+  </div>
+</div>
+
+<!-- Elevator Status -->
+<div class="fp" id="p-elv" style="top:56px;right:12px;width:262px">
+  <div class="fp-hdr" id="h-elv"><span class="fp-ttl" data-zh="🛗 电梯状态" data-en="🛗 Elevator Status">🛗 电梯状态</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd" style="max-height:calc(100vh - 100px);overflow-y:auto"><div id="ecards"></div></div>
+</div>
+
+<!-- Event Log -->
+<div class="fp" id="p-log" style="top:670px;left:12px;width:242px">
+  <div class="fp-hdr" id="h-log"><span class="fp-ttl" data-zh="事件日志" data-en="Event Log">事件日志</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd" style="padding-bottom:4px">
+    <div id="elogitems" style="max-height:180px;overflow:hidden"></div>
+    <button class="fpa" onclick="dlLog()" style="margin-top:5px;background:rgba(201,148,74,.1);color:#c9944a;border:0.5px solid rgba(201,148,74,.3)" data-zh="⬇ 下载完整日志" data-en="⬇ Download Full Log">⬇ 下载完整日志</button>
+  </div>
+</div>
+
+<!-- Statistics -->
+<div class="fp" id="p-stat" style="top:450px;right:12px;width:262px">
+  <div class="fp-hdr" id="h-stat" style="padding:6px 12px"><span class="fp-ttl" data-zh="运行统计" data-en="Statistics">运行统计</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd" style="padding:6px 16px">
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="等候" data-en="Wait">等候</span> <b id="eswt" style="color:#c9944a">0</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="乘梯" data-en="Riding">乘梯</span> <b id="esrd" style="color:#c9944a">0</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="已送" data-en="Served">已送</span> <b id="essv" style="color:#c9944a">0</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="均等待" data-en="Avg Wait">均等待</span> <b id="esaw" style="color:#c9944a">0s</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="算法" data-en="Algo">算法</span> <b id="ealgo2" style="color:#e8b86d">LOOK</b></span>
+    </div>
+  </div>
+</div>
+
+<!-- Waiting Passengers -->
+<div class="fp" id="p-wait" style="top:200px;right:12px;width:262px">
+  <div class="fp-hdr" id="h-wait"><span class="fp-ttl" style="color:#e8b86d" data-zh="⏳ 等候乘客" data-en="⏳ Waiting Pax">⏳ 等候乘客</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+      <span style="font-size:12px;color:rgba(139,148,158,.8)" data-zh="总等待时长" data-en="Total Wait Time">总等待时长</span>
+      <span style="font-size:13px;font-weight:500;color:#e6edf3" id="ewtotal">0s</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <span style="font-size:12px;color:rgba(139,148,158,.8)" data-zh="最长等待" data-en="Max Wait">最长等待</span>
+      <span style="font-size:13px;font-weight:500" id="ewmax">0s</span>
+    </div>
+    <div id="wait-dist-lbl" style="font-size:11px;color:rgba(139,148,158,.55);margin-bottom:4px" data-zh="楼层分布（谁在几楼）" data-en="Floor Distribution">楼层分布（谁在几楼）</div>
+    <div id="ewlist"><div style="font-size:11px;color:rgba(139,148,158,.4)" id="wait-empty-msg" data-zh="无乘客等候" data-en="No passengers waiting">无乘客等候</div></div>
+  </div>
+</div>
+
+<!-- Test Data Feed -->
+<div class="fp" id="p-feed" style="top:706px;right:12px;width:262px">
+  <div class="fp-hdr" id="h-feed">
+    <span class="ldot"></span>
+    <span class="fp-ttl" style="color:#e8b86d"><span data-zh="测试数据注入 — " data-en="Test Data Feed — ">测试数据注入 — </span><span id="efhdr">0</span> <span id="feed-batch-lbl" data-zh="批" data-en="batches">批</span></span>
+    <button class="fp-min" onclick="fmin(this)">—</button>
+  </div>
+  <div class="fp-bd">
+    <div style="display:grid;grid-template-columns:62px 30px 1fr;gap:0 6px;padding:2px 4px;border-bottom:0.5px solid rgba(255,255,255,.1);margin-bottom:3px">
+      <span style="font-size:11px;color:rgba(139,148,158,.5)" data-zh="时间" data-en="Time">时间</span>
+      <span style="font-size:11px;color:rgba(139,148,158,.5)" data-zh="人数" data-en="Count">人数</span>
+      <span style="font-size:11px;color:rgba(139,148,158,.5)" data-zh="楼层（起→终）" data-en="Floors (from→to)">楼层（起→终）</span>
+    </div>
+    <div id="efeed" style="overflow-y:auto;max-height:145px"></div>
+  </div>
+</div>
+
+<!-- Digital Twin Connect -->
+<div class="fp" id="p-twin" style="top:744px;right:12px;width:262px">
+  <div class="fp-hdr" id="h-twin"><span class="fp-ttl" data-zh="🔌 数字孪生接入" data-en="🔌 Digital Twin Connect">🔌 数字孪生接入</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd">
+    <div id="twin-layer-note" style="font-size:10px;color:rgba(139,148,158,.5);margin-bottom:6px" data-zh="Layer 1: 物理仿真 → Layer 2: AI调度 → Layer 3: 孪生视图" data-en="Layer 1: Physics → Layer 2: AI Dispatch → Layer 3: Twin View">Layer 1: 物理仿真 → Layer 2: AI调度 → Layer 3: 孪生视图</div>
+    <div style="display:flex;gap:5px;margin-bottom:8px">
+      <button id="btn-sim" onclick="setTwinMode('sim')" style="flex:1;padding:5px;border:0.5px solid rgba(201,148,74,.4);border-radius:6px;font-size:11px;cursor:pointer;background:rgba(201,148,74,.2);color:#c9944a" data-zh="仿真模式" data-en="Sim Mode">仿真模式</button>
+      <button id="btn-ext" onclick="setTwinMode('ext')" style="flex:1;padding:5px;border:0.5px solid rgba(255,255,255,.15);border-radius:6px;font-size:11px;cursor:pointer;background:rgba(255,255,255,.05);color:rgba(139,148,158,.7)" data-zh="外接模式" data-en="Ext Mode">外接模式</button>
+    </div>
+    <div id="twin-sim-info" style="font-size:11px;color:rgba(139,148,158,.7)"><span class="ldot" style="margin-right:4px"></span><span data-zh="使用内置仿真数据驱动" data-en="Using built-in simulation data">使用内置仿真数据驱动</span></div>
+    <div id="twin-ext-panel" style="display:none">
+      <div style="font-family:monospace;font-size:10px;background:rgba(255,255,255,.04);padding:6px;border-radius:4px;color:#e8b86d;line-height:1.7;margin-bottom:6px">window.DigitalTwin<br>.setElevState(id, {<br>&nbsp;&nbsp;floor, dir,<br>&nbsp;&nbsp;doorPct, stops<br>})</div>
+      <div id="twin-ext-lbl" style="font-size:10px;color:rgba(139,148,158,.6);margin-bottom:4px" data-zh="快速注入测试状态" data-en="Inject test state">快速注入测试状态</div>
+      <div id="twin-elv-inputs"></div>
+      <button onclick="applyTwinInput()" style="width:100%;margin-top:5px;padding:5px;border:0.5px solid rgba(201,148,74,.3);border-radius:5px;font-size:11px;cursor:pointer;background:rgba(201,148,74,.1);color:#c9944a" data-zh="注入状态" data-en="Inject State">注入状态</button>
+    </div>
+    <hr class="hr">
+    <div style="font-size:11px;color:rgba(139,148,158,.6)">ElevatorAgent (Layer 2)</div>
+    <div id="agent-status" style="font-size:11px;color:#3fb950;margin:2px 0" data-zh="运行中 — 仿真驱动" data-en="Running — Sim Driven">运行中 — 仿真驱动</div>
+    <div style="font-size:10px;color:rgba(139,148,158,.3);margin-top:3px" data-zh="window.ElevatorAgent 已暴露，可接入 LLM 优化扩展" data-en="window.ElevatorAgent exposed for LLM optimization">window.ElevatorAgent 已暴露，可接入 LLM 优化扩展</div>
+  </div>
+</div>
+
+<!-- hint -->
+<div id="hint3d" style="position:fixed;top:59px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(139,148,158,.2);pointer-events:none;user-select:none;z-index:50" data-zh="左键旋转 · 滚轮缩放 · 右键平移" data-en="Rotate · Zoom · Right-drag pan">左键旋转 · 滚轮缩放 · 右键平移</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ════════════════════════════════════════════════════════════
+   I18N
+   ════════════════════════════════════════════════════════════ */
+const LANG_KEY = 'opcstudio_lang';
+let lang = localStorage.getItem(LANG_KEY) || 'zh';
+
+const D = {
+  zh: {
+    navBack:'← 返回主页', navTitle:'电梯数字孪生', langBtn:'EN',
+    stIdle:'停', stUp:'上 ▲', stDown:'下 ▼', stDopn:'开门…', stDopen:'开 ●', stDcls:'关门…', stEmrg:'急停!',
+    btnEstop:'急停', btnResume:'恢复',
+    waitEmpty:'无乘客等候',
+    agentRunSim:'运行中 — 仿真驱动', agentRunExt:'运行中 — 外部数据接入',
+    logStart:'系统启动', logOptDone:'优化完成 代价', logDispatch:'一键调度已触发',
+    logEmrg:'紧急停梯!', logClear:'已恢复', logAlgo:'算法→', logOpt:'优化完成 代价',
+    logTwinSim:'孪生模式→仿真', logTwinExt:'孪生模式→外接',
+    logInject:'已注入外部状态', logNeedExt:'请先切换到外接模式',
+    logMult:'人数倍率×', logReset:'参数已重置',
+    xEStop:'E${i+1} 急停', xResume:'E${i+1} 已恢复',
+    xArrival:'E${eid+1} 到 ${f}F', xDopen:'E${eid+1} ${f}F 开门',
+    xCall:'${fl}F → E${eid+1}', xImv:'E${eid+1} 待机→${to}F',
+    optDone:'优化完成 代价',
+    ypanLbl:'视角移动', ypanRst:'复位', ypanHint:'右键拖拽平移',
+    floorF:'F',
+  },
+  en: {
+    navBack:'← Home', navTitle:'Elevator Digital Twin', langBtn:'中文',
+    stIdle:'IDLE', stUp:'UP ▲', stDown:'DN ▼', stDopn:'Opening', stDopen:'Open ●', stDcls:'Closing', stEmrg:'EMRG!',
+    btnEstop:'E-Stop', btnResume:'Resume',
+    waitEmpty:'No passengers waiting',
+    agentRunSim:'Running — Sim Driven', agentRunExt:'Running — External Data',
+    logStart:'System started', logOptDone:'Optimized cost=', logDispatch:'Dispatch all triggered',
+    logEmrg:'Emergency stop!', logClear:'Resumed', logAlgo:'Algo→', logOpt:'Optimized cost=',
+    logTwinSim:'Twin→sim', logTwinExt:'Twin→ext',
+    logInject:'External state injected', logNeedExt:'Switch to Ext Mode first',
+    logMult:'Spawn rate×', logReset:'Params reset',
+    xEStop:'E${i+1} emergency stop', xResume:'E${i+1} resumed',
+    xArrival:'E${eid+1} arrived floor ${f}', xDopen:'E${eid+1} floor ${f} door open',
+    xCall:'${fl}F → E${eid+1}', xImv:'E${eid+1} standby→${to}F',
+    optDone:'Optimized cost=',
+    ypanLbl:'View Shift', ypanRst:'Reset', ypanHint:'Right-drag to pan',
+    floorF:'F',
+  }
+};
+function t(k){ return D[lang]?.[k] ?? D.zh[k] ?? k; }
+
+function applyLang(){
+  document.documentElement.lang = lang==='zh'?'zh-CN':'en';
+  document.querySelectorAll('[data-zh]').forEach(el=>{
+    el.textContent = lang==='zh'?el.dataset.zh:el.dataset.en;
+  });
+  G('nav-back').textContent = t('navBack');
+  G('nav-title').textContent = t('navTitle');
+  G('lang-btn').textContent = t('langBtn');
+  G('ypan-lbl').textContent = t('ypanLbl');
+  G('ypan-rst').textContent = t('ypanRst');
+  G('ypan-hint').textContent = t('ypanHint');
+  if(cfg?.elevs){ bldCards(cfg.elevs); bldTwinInputs(); }
+  localStorage.setItem(LANG_KEY, lang);
+}
+function toggleLang(){ lang=lang==='zh'?'en':'zh'; applyLang(); }
+window.toggleLang = toggleLang;
+
+/* ════════════════════════════════════════════════════════════
+   PANEL MANAGEMENT
+   ════════════════════════════════════════════════════════════ */
+let zTop=100;
+const LS_KEY='elv-twin-panels-v2';
+function savePS(){const st={};document.querySelectorAll('.fp[id]').forEach(p=>{const bd=p.querySelector('.fp-bd');st[p.id]={l:p.style.left,t:p.style.top,r:p.style.right,b:p.style.bottom,w:p.style.width,h:p.style.height,mz:bd?bd.classList.contains('mz'):false}});try{localStorage.setItem(LS_KEY,JSON.stringify(st))}catch(e){}}
+function restorePS(){let st;try{st=JSON.parse(localStorage.getItem(LS_KEY)||'{}')}catch(e){st={}}document.querySelectorAll('.fp[id]').forEach(p=>{const d=st[p.id];if(!d)return;if(d.l){p.style.left=d.l;p.style.right='auto'}else if(d.r){p.style.right=d.r;p.style.left='auto'}if(d.t){p.style.top=d.t;p.style.bottom='auto'}else if(d.b){p.style.bottom=d.b;p.style.top='auto'}if(d.w)p.style.width=d.w;if(d.h)p.style.height=d.h;if(d.mz){const bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr'),btn=p.querySelector('.fp-min');if(bd)bd.classList.add('mz');if(hdr)hdr.classList.add('mz');if(btn)btn.textContent='+'}})}
+function fmin(btn){const p=btn.closest('.fp'),bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr');const mz=bd.classList.toggle('mz');hdr.classList.toggle('mz',mz);btn.textContent=mz?'+':'—';savePS()}
+window.fmin=fmin;
+document.querySelectorAll('.fp').forEach(panel=>{
+  const hdr=panel.querySelector('.fp-hdr');let drag=false,ox=0,oy=0;
+  hdr.addEventListener('mousedown',e=>{if(e.target.classList.contains('fp-min'))return;drag=true;panel.style.zIndex=++zTop;const r=panel.getBoundingClientRect();panel.style.left=r.left+'px';panel.style.top=r.top+'px';panel.style.right='auto';panel.style.bottom='auto';panel.style.transform='none';ox=e.clientX-r.left;oy=e.clientY-r.top;e.preventDefault()});
+  document.addEventListener('mousemove',e=>{if(!drag)return;const x=Math.max(0,Math.min(innerWidth-panel.offsetWidth,e.clientX-ox));const y=Math.max(44,Math.min(innerHeight-40,e.clientY-oy));panel.style.left=x+'px';panel.style.top=y+'px'});
+  document.addEventListener('mouseup',()=>{if(drag){drag=false;savePS()}});
+  panel.addEventListener('mousedown',()=>panel.style.zIndex=++zTop);
+});
+if(window.ResizeObserver){const ro=new ResizeObserver(()=>savePS());document.querySelectorAll('.fp[id]').forEach(p=>ro.observe(p))}
+restorePS();
+/* ── Panel layout helpers ── */
+function _setPos(id,x,y,w,h){
+  const p=document.getElementById(id);if(!p)return;
+  p.style.left=x+'px';p.style.top=y+'px';p.style.right='auto';p.style.bottom='auto';
+  if(w!=null)p.style.width=w+'px';if(h!=null)p.style.height=h+'px';
+}
+function _collapse(id){
+  const p=document.getElementById(id);if(!p)return;
+  const bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr'),btn=p.querySelector('.fp-min');
+  if(bd&&!bd.classList.contains('mz')){bd.classList.add('mz');if(hdr)hdr.classList.add('mz');if(btn)btn.textContent='+'}
+}
+function layoutPanels(nE){
+  localStorage.removeItem(LS_KEY);
+  const M=12,GAP=8,NAV=44,W=Math.max(innerWidth,800);
+  const LW=242,RW=262,LX=M,RX=W-RW-M,TOP=NAV+M;
+  /* Left column: Config (top) + Optimizer (below) */
+  const CFG_H=374,OPT_H=218;
+  _setPos('p-cfg',LX,TOP,LW,CFG_H);
+  _setPos('p-opt',LX,TOP+CFG_H+GAP,LW,OPT_H);
+  /* Event Log collapsed below opt */
+  _setPos('p-log',LX,TOP+CFG_H+GAP+OPT_H+GAP,LW,null);_collapse('p-log');
+  /* Right column: Elevator Status + Waiting + Stats */
+  const ELV_H=Math.min(38+nE*130,370),WAIT_H=248,STAT_H=64;
+  _setPos('p-elv',RX,TOP,RW,ELV_H);
+  _setPos('p-wait',RX,TOP+ELV_H+GAP,RW,WAIT_H);
+  _setPos('p-stat',RX,TOP+ELV_H+GAP+WAIT_H+GAP,RW,STAT_H);
+  /* Feed + Twin collapsed below stats */
+  const afterStat=TOP+ELV_H+GAP+WAIT_H+GAP+STAT_H+GAP;
+  _setPos('p-feed',RX,afterStat,RW,null);_collapse('p-feed');
+  _setPos('p-twin',RX,afterStat+38,RW,null);_collapse('p-twin');
+}
+
+/* ════════════════════════════════════════════════════════════
+   CONSTANTS & UTILS
+   ════════════════════════════════════════════════════════════ */
+const FH=4,SW=2.8,SD=2.6,SG=0.6,CW=SW-.24,CD=SD-.18,CH=FH*.82;
+const DW=CW/2-.04,DH=CH-.24,DT=.06,UP=1,NONE=0,DOWN=-1;
+const SPD=2.5,ACC=1.8,DHOLD=3.0,DANIM=0.8,ARR=0.03;
+const shX=i=>i*(SW+SG),bW=n=>n*SW+(n-1)*SG;
+function getTS(){const t=new Date();return`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`}
+function fmtS(s){if(s<60)return s.toFixed(0)+'s';const m=Math.floor(s/60),r=Math.round(s%60);return r?`${m}m${r}s`:`${m}m`}
+function G(id){return document.getElementById(id)}
+
+/* ════════════════════════════════════════════════════════════
+   LAYER 1 — CORE ELEVATOR PHYSICS
+   ════════════════════════════════════════════════════════════ */
+class EU{
+  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={}}
+  on(e,f){(this._L[e]??=[]).push(f);return this}
+  _emit(e,d){(this._L[e]??[]).forEach(f=>f(d))}
+  addStop(f){
+    if(f>=1&&f<=this.nF){
+      if(this.state==='IDLE'&&this._ds==='closed'&&Math.abs(this.pos-f)<ARR+.12){this._arr(f)}
+      else if((this.state==='DOPN'||this.state==='DOPEN')&&Math.abs(this.pos-f)<ARR+.12){}
+      else{this.stops.add(f);if(this.state==='IDLE')this._pick()}
+    }
+  }
+  board(p){this.pax.push(p);this.addStop(p.to)}
+  _pick(){if(!this.stops.size)return;const at=[...this.stops].find(f=>Math.abs(f-this.pos)<ARR+.12);if(at!=null&&this._ds==='closed'){this._arr(at);return}const n=[...this.stops].reduce((a,b)=>Math.abs(a-this.pos)<Math.abs(b-this.pos)?a:b);this.dir=n>this.pos?UP:n<this.pos?DOWN:NONE;this.state=this.dir===UP?'UP':this.dir===DOWN?'DOWN':'IDLE'}
+  _next(){const s=[...this.stops];if(!s.length)return null;if(this.dir===UP){const a=s.filter(f=>f>this.pos+ARR);return a.length?Math.min(...a):Math.max(...s)}if(this.dir===DOWN){const a=s.filter(f=>f<this.pos-ARR);return a.length?Math.max(...a):Math.min(...s)}return s.reduce((a,b)=>Math.abs(a-this.pos)<Math.abs(b-this.pos)?a:b)}
+  update(dt){
+    if(this.oos||this.state==='EMRG')return;this._dU(dt);if(this._ds!=='closed')return;
+    if(this.state==='IDLE'){if(this.stops.size)this._pick();return}
+    if(['DOPN','DOPEN','DCLS'].includes(this.state))return;
+    const tgt=this._next();if(!tgt){this.vel=0;this.dir=NONE;this.state='IDLE';return}
+    const dist=tgt-this.pos,ad=Math.abs(dist),d=dist>0?1:-1;
+    if(d!==this.dir){this.dir=d;this.state=d===1?'UP':'DOWN'}
+    const br=this.vel*this.vel/(2*ACC);
+    const nv=ad<=br+.01?(()=>{const v=this.vel-ACC*dt*d;return Math.abs(v)<.05?0:v})():Math.max(-SPD,Math.min(SPD,this.vel+ACC*dt*d));
+    this.vel=nv;this.pos+=nv*dt;if(Math.abs(this.pos-tgt)<ARR){this.pos=tgt;this.vel=0;this._arr(tgt)}
+  }
+  _arr(f){this.stops.delete(f);this.state='DOPN';this._ds='opening';this._dt=0;const out=this.pax.filter(p=>p.to===f);out.forEach(p=>this._emit('exit',{eid:this.id,f,p}));this.pax=this.pax.filter(p=>p.to!==f);this._emit('arr',{eid:this.id,f})}
+  _dU(dt){
+    this._dt+=dt;
+    if(this._ds==='opening'){this.dp=Math.min(1,this._dt/DANIM);if(this.dp>=1){this._ds='open';this._dt=0;this.state='DOPEN';this._emit('dopen',{eid:this.id,f:Math.round(this.pos)})}}
+    else if(this._ds==='open'){if(this._dt>=DHOLD){this._ds='closing';this._dt=0;this.state='DCLS'}}
+    else if(this._ds==='closing'){this.dp=Math.max(0,1-this._dt/DANIM);if(this.dp<=0){this._ds='closed';this._dt=0;this.state='IDLE';this._emit('dcls',{eid:this.id})}}
+  }
+  emrg(){this.vel=0;this.state='EMRG';this.oos=true}
+  clear(){this.oos=false;this.state='IDLE';this.stops.clear()}
+  get st(){return{id:this.id,f:this.pos,df:Math.round(this.pos),dir:this.dir,state:this.state,dp:this.dp,pax:this.pax.length,stops:[...this.stops]}}
+}
+class ES{
+  constructor(nE,nF){this.nF=nF;this._L={};this.algo='LOOK';this._ip=null;this.elevs=Array.from({length:nE},(_,i)=>new EU(i,nF));this.elevs.forEach(e=>['exit','arr','dopen','dcls'].forEach(ev=>e.on(ev,d=>this._emit(ev,d))))}
+  on(e,f){(this._L[e]??=[]).push(f);return this}
+  _emit(e,d){(this._L[e]??[]).forEach(f=>f(d))}
+  setAlgo(a){this.algo=a}
+  setIP(p){this._ip=p}
+  _disp(fl,dir){
+    const av=this.elevs.filter(e=>!e.oos);if(!av.length)return null;
+    if(this.algo==='NEAREST')return av.reduce((a,b)=>Math.abs(a.pos-fl)<Math.abs(b.pos-fl)?a:b);
+    if(this.algo==='DCS')return av.reduce((a,b)=>a.stops.size<=b.stops.size?a:b);
+    const t1=av.filter(e=>(e.dir===dir&&dir===UP&&e.pos<=fl)||(e.dir===dir&&dir===DOWN&&e.pos>=fl));
+    if(t1.length)return t1.reduce((a,b)=>Math.abs(a.pos-fl)<Math.abs(b.pos-fl)?a:b);
+    const id=av.filter(e=>e.dir===NONE);if(id.length)return id.reduce((a,b)=>Math.abs(a.pos-fl)<Math.abs(b.pos-fl)?a:b);
+    return av.reduce((a,b)=>Math.abs(a.pos-fl)<Math.abs(b.pos-fl)?a:b);
+  }
+  call(fl,dir){const e=this._disp(fl,dir);if(!e)return -1;e.addStop(fl);this._emit('call',{fl,dir,eid:e.id});return e.id}
+  board(i,p){const e=this.elevs[i];if(!e||e.state!=='DOPEN')return false;e.board(p);return true}
+  emrg(){this.elevs.forEach(e=>e.emrg())}
+  clear(){this.elevs.forEach(e=>e.clear())}
+  update(dt){this.elevs.forEach((e,i)=>{e.update(dt);if(e.state==='IDLE'&&!e.stops.size&&!e.oos&&this._ip&&this._ip[i]!=null){const tf=this._ip[i];if(Math.abs(e.pos-tf)>.5){e.addStop(tf);this._emit('imv',{eid:i,to:tf})}}})}
+  getAll(){return this.elevs.map(e=>e.st)}
+}
+
+/* ════════════════════════════════════════════════════════════
+   LAYER 2 — ELEVATOR AGENT
+   ════════════════════════════════════════════════════════════ */
+class TA{
+  constructor(nF){this.nF=nF;this._r={}}
+  record(f){const h=new Date().getHours();if(!this._r[h])this._r[h]=new Array(this.nF).fill(0);if(f>=1&&f<=this.nF)this._r[h][f-1]++}
+  demand(h){const sy=this._syn(h),re=this._r[h]||new Array(this.nF).fill(0);const w=Object.keys(this._r).length>0?.35:0;const mx=sy.map((s,i)=>s*(1-w)+(re[i]||0)*w);const sm=mx.reduce((a,b)=>a+b,0);return sm>0?mx.map(v=>v/sm):new Array(this.nF).fill(1/this.nF)}
+  _syn(h){const d=new Array(this.nF).fill(1);if(h>=7&&h<=9){d[0]+=22;for(let i=1;i<Math.min(3,this.nF);i++)d[i]+=9}if(h>=12&&h<=13){const m=Math.floor(this.nF/2);d[m]+=16;if(m>0)d[m-1]+=8;if(m<this.nF-1)d[m+1]+=8}if(h>=17&&h<=19){for(let i=Math.floor(this.nF*.55);i<this.nF;i++)d[i]+=12+(i-Math.floor(this.nF*.55))*2}if(h>=20||h<6){d[this.nF-1]+=10;if(this.nF>1)d[this.nF-2]+=5}return d}
+  label(h){if(h>=7&&h<=9)return lang==='zh'?'上午高峰':'Morning Peak';if(h>=12&&h<=13)return lang==='zh'?'午休时段':'Lunch';if(h>=17&&h<=19)return lang==='zh'?'傍晚高峰':'Evening Peak';if(h>=20||h<6)return lang==='zh'?'夜间低峰':'Night';return lang==='zh'?'平峰时段':'Off-Peak'}
+}
+class IS{
+  optimize(dem,nE,nF){let cur=Array.from({length:nE},(_,i)=>Math.max(1,Math.round((i+.5)*nF/nE)));const cost=p=>{let c=0;for(let f=1;f<=nF;f++){const d=dem[f-1]||0;c+=d*Math.min(...p.map(x=>Math.abs(x-f)))}return c};let T=5,best=[...cur],bc=cost(cur);for(let i=0;i<800;i++){T*=.9944;const nx=[...cur];nx[Math.floor(Math.random()*nE)]=Math.floor(Math.random()*nF)+1;const nc=cost(nx),dc=nc-cost(cur);if(dc<0||Math.random()<Math.exp(-dc/Math.max(T,1e-4))){cur=nx;if(nc<bc){bc=nc;best=[...nx]}}}return{pos:best,cost:bc.toFixed(3)}}
+}
+class ElevatorAgent{
+  constructor(nF,nE){this.nF=nF;this.nE=nE;this._ta=new TA(nF);this._opt=new IS();this._pressCount=new Array(nF).fill(0);this.idlePos=null}
+  recordCall(floor){if(floor>=1&&floor<=this.nF){this._pressCount[floor-1]++;this._ta.record(floor)}}
+  optimize(){const h=new Date().getHours();const hd=this._ta.demand(h);const pt=this._pressCount.reduce((a,b)=>a+b,0);const dem=hd.map((v,i)=>{const pn=pt>0?this._pressCount[i]/pt:1/this.nF;return v*.65+pn*.35});const res=this._opt.optimize(dem,this.nE,this.nF);this.idlePos=res.pos;return{demand:dem,result:res,period:this._ta.label(h)}}
+  getDemand(){return this._ta.demand(new Date().getHours())}
+  getPressCounts(){return[...this._pressCount]}
+}
+
+/* ════════════════════════════════════════════════════════════
+   LAYER 3 — THREE.JS DIGITAL TWIN VISUALIZATION
+   ════════════════════════════════════════════════════════════ */
+let _twinMode='sim';
+let _extElvState={};
+
+window.DigitalTwin={
+  setElevState(id,st){_extElvState[id]={...st};const el=G('agent-status');if(el)el.textContent=`E${id+1}: ${st.floor||'?'}F`;logEv('twin','ext_state',{id,...st})},
+  recordFloorCall(floor,dir){agent?.recordCall(floor);if(sys)sys.call(floor,dir>=0?UP:DOWN)},
+  getRecommendation(){return{idlePos:agent?.idlePos,demand:agent?.getDemand(),pressCounts:agent?.getPressCounts()}}
+};
+
+const cc=document.getElementById('cc');
+const R=new THREE.WebGLRenderer({antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));R.setSize(innerWidth,innerHeight-44);
+R.shadowMap.enabled=true;R.toneMapping=THREE.ACESFilmicToneMapping;R.toneMappingExposure=1.2;
+cc.appendChild(R.domElement);
+const SC=new THREE.Scene();SC.background=new THREE.Color(0x0d0a07);SC.fog=new THREE.FogExp2(0x0d0a07,.009);
+SC.add(new THREE.AmbientLight(0x332211,2.0));
+const SL=new THREE.DirectionalLight(0xfff8ee,2.5);SL.position.set(15,35,15);SL.castShadow=true;SL.shadow.mapSize.set(2048,2048);SL.shadow.camera.left=SL.shadow.camera.bottom=-35;SL.shadow.camera.right=SL.shadow.camera.top=35;SC.add(SL);
+{const l1=new THREE.DirectionalLight(0x7799cc,.6);l1.position.set(-10,8,-8);SC.add(l1);const l2=new THREE.DirectionalLight(0x443322,.4);l2.position.set(0,5,22);SC.add(l2)}
+const GR=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshLambertMaterial({color:0x100d08}));GR.rotation.x=-Math.PI/2;GR.receiveShadow=true;SC.add(GR);
+SC.add(new THREE.GridHelper(160,80,0x1a1208,0x1a1208));
+const CAM=new THREE.PerspectiveCamera(45,innerWidth/(innerHeight-44),.1,800);
+const controls=new OrbitControls(CAM,R.domElement);
+controls.enableDamping=true;controls.dampingFactor=.06;controls.minDistance=4;controls.maxDistance=150;controls.maxPolarAngle=Math.PI*.88;controls.screenSpacePanning=true;
+
+function mkBld(nF,nE){
+  const grp=new THREE.Group(),bw=bW(nE),bh=nF*FH,cx=(bw-SW)/2;
+  const mSl=new THREE.MeshPhongMaterial({color:0xd8d3c8,shininess:12});
+  const mSh=new THREE.MeshPhongMaterial({color:0x2a2010,transparent:true,opacity:.5,depthWrite:false});
+  const mGl=new THREE.MeshPhongMaterial({color:0xaa8855,transparent:true,opacity:.14,side:THREE.DoubleSide,depthWrite:false,shininess:80});
+  for(let f=0;f<nF;f++){
+    const sl=new THREE.Mesh(new THREE.BoxGeometry(bw+1.2,.22,SD+1.8),mSl);sl.position.set(cx,f*FH,.3);sl.receiveShadow=sl.castShadow=true;grp.add(sl);
+    const ed=new THREE.Mesh(new THREE.BoxGeometry(bw+1.22,.07,SD+1.82),new THREE.MeshLambertMaterial({color:0xb0a898}));ed.position.set(cx,f*FH+.14,.3);grp.add(ed);
+  }
+  for(let i=0;i<nE;i++){
+    const x=shX(i);const mR=new THREE.MeshPhongMaterial({color:0x7a7a8a,shininess:40});
+    [[SW,bh,.06,0,bh/2,SD/2+.03],[SW,bh,.06,0,bh/2,-SD/2-.03],[.06,bh,SD,-SW/2-.03,bh/2,0],[.06,bh,SD,SW/2+.03,bh/2,0]].forEach(([w,h,d,ox,oy,oz])=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mSh);m.position.set(x+ox,oy,oz);grp.add(m)});
+    for(const rx of[-SW/2+.1,SW/2-.1]){const r=new THREE.Mesh(new THREE.BoxGeometry(.06,bh,.06),mR);r.position.set(x+rx,bh/2,0);grp.add(r)}
+  }
+  [[bw+1.4,bh,.08,cx,bh/2,SD/2+.4],[bw+1.4,bh,.08,cx,bh/2,-SD/2-.4],[.08,bh,SD+1.8,cx-bw/2-.65,bh/2,.3],[.08,bh,SD+1.8,cx+bw/2+.65,bh/2,.3]].forEach(([w,h,d,ox,oy,oz])=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mGl);m.position.set(ox,oy,oz);grp.add(m)});
+  const rf=new THREE.Mesh(new THREE.BoxGeometry(bw+1.4,.12,SD+1.8),new THREE.MeshLambertMaterial({color:0xc0b8a8}));rf.position.set(cx,bh+.06,.3);grp.add(rf);
+  SC.add(grp);return grp;
+}
+
+class E3D{
+  constructor(id,nF){this.id=id;this.nF=nF;this._sy=0;this.grp=new THREE.Group();this.grp.position.x=shX(id);SC.add(this.grp);this._bld()}
+  _bld(){
+    const mB=new THREE.MeshPhongMaterial({color:0xc8761a,shininess:70}),mT=new THREE.MeshPhongMaterial({color:0x9a5010,shininess:40}),mD=new THREE.MeshPhongMaterial({color:0xf0a030,shininess:130});
+    [[CW,.06,CD,0,CH,0,mT],[CW,.06,CD,0,0,0,mB],[.06,CH,CD,-CW/2,CH/2,0,mB],[.06,CH,CD,CW/2,CH/2,0,mB],[CW,CH,.06,0,CH/2,-CD/2,mB]].forEach(([w,h,d,ox,oy,oz,m])=>{const ms=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);ms.position.set(ox,oy,oz);ms.castShadow=true;this.grp.add(ms)});
+    const ifl=new THREE.Mesh(new THREE.BoxGeometry(CW-.06,.04,CD-.06),new THREE.MeshLambertMaterial({color:0xf0e8d8}));ifl.position.set(0,.04,0);this.grp.add(ifl);
+    this._ic=new THREE.Mesh(new THREE.BoxGeometry(CW*.5,.04,CD*.4),new THREE.MeshStandardMaterial({color:0xfff5dd,emissive:new THREE.Color(0xfff5dd),emissiveIntensity:0}));this._ic.position.set(0,CH-.05,0);this.grp.add(this._ic);
+    this._il=new THREE.PointLight(0xfff0cc,0,6);this._il.position.set(0,CH*.75,0);this.grp.add(this._il);
+    const dg=new THREE.BoxGeometry(DW,DH,DT);this._dL=new THREE.Mesh(dg,mD.clone());this._dR=new THREE.Mesh(dg,mD.clone());
+    this._lcx=-DW/2-.02;this._rcx=DW/2+.02;this._lox=-CW/2+.02;this._rox=CW/2-.02;
+    this._dL.position.set(this._lcx,DH/2+.1,SD/2-DT/2);this._dR.position.set(this._rcx,DH/2+.1,SD/2-DT/2);
+    this._dL.castShadow=this._dR.castShadow=true;this.grp.add(this._dL,this._dR);
+    const mF=new THREE.MeshPhongMaterial({color:0x888898,shininess:20});
+    [[-CW/2+.02,CH/2,SD/2-.02],[CW/2-.02,CH/2,SD/2-.02]].forEach(([ox,oy,oz])=>{const m=new THREE.Mesh(new THREE.BoxGeometry(.07,CH+.08,.07),mF);m.position.set(ox,oy,oz);this.grp.add(m)});
+    const tp=new THREE.Mesh(new THREE.BoxGeometry(CW,.07,.07),mF);tp.position.set(0,CH+.02,SD/2-.02);this.grp.add(tp);
+    const mkC=(ox)=>{const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(ox,CH+.12,0),new THREE.Vector3(ox,this.nF*FH+2,0)]);const l=new THREE.Line(g,new THREE.LineBasicMaterial({color:ox===0?0x888888:0x666678}));this.grp.add(l);return l};
+    this._cb=mkC(0);this._cb2=mkC(-SW*.12);this._cb3=mkC(SW*.12);
+  }
+  _updVis(ty,dp,dt){
+    this._sy+=(ty-this._sy)*Math.min(1,dt*16);this.grp.position.y=this._sy;
+    const top=this.nF*FH+2-this._sy;
+    [this._cb,this._cb2,this._cb3].forEach((c,i)=>{const pa=c.geometry.attributes.position,ox=[0,-SW*.12,SW*.12][i];pa.setXYZ(1,ox,top-(i?.2:0),0);pa.needsUpdate=true});
+    const t=Math.max(0,Math.min(1,dp));
+    this._dL.position.x=this._lcx+(this._lox-this._lcx)*t;this._dR.position.x=this._rcx+(this._rox-this._rcx)*t;
+    this._il.intensity=t*2.2;this._ic.material.emissiveIntensity=t*.9;
+  }
+  update(dt,s){
+    if(_twinMode==='ext'){const ext=_extElvState[this.id];if(ext)this._updVis((ext.floor-1)*FH,ext.doorPct||0,dt);return}
+    if(!s)return;this._updVis((s.f-1)*FH,s.dp,dt);
+  }
+  destroy(){SC.remove(this.grp)}
+}
+
+/* ════════════════════════════════════════════════════════════
+   LAYER 4 — SIMULATION DATA LAYER (Passenger Spawner)
+   ════════════════════════════════════════════════════════════ */
+const PCL=[0xc9944a,0xff6644,0x44dd88,0x58a6ff,0xcc44ff,0xff4488,0x22ccff,0xe8b86d];
+let _pid=0;const paxList=[];let svcCnt=0,waitSum=0;
+
+function mkPax(from,to){
+  const g=new THREE.Group(),col=PCL[_pid%PCL.length];
+  const bd=new THREE.Mesh(new THREE.CapsuleGeometry(.13,.6,4,8),new THREE.MeshLambertMaterial({color:col}));bd.position.y=.47;g.add(bd);
+  const hd=new THREE.Mesh(new THREE.SphereGeometry(.16,8,6),new THREE.MeshLambertMaterial({color:0xffddbb}));hd.position.y=.93;g.add(hd);
+  const qLen=paxList.filter(p=>p.from===from&&(p.state==='WAITING'||p.state==='BOARDING')).length;
+  const qRow=Math.floor(qLen/3),qCol=qLen%3;
+  const wx=-SW/2-0.65-qRow*0.5,wz=(qCol-1)*0.42;
+  g.position.set(wx,(from-1)*FH+.02,wz);SC.add(g);
+  logEv('pax','spawn',{pid:_pid,from,to});
+  return{id:_pid++,from,to,state:'WAITING',eid:null,spawn:performance.now()/1000,waitT:null,mesh:g,_tx:wx,_tz:wz,_et:0};
+}
+function paxTick(p,dt){
+  const pos=p.mesh.position;pos.x+=(p._tx-pos.x)*Math.min(1,dt*5);pos.z+=(p._tz-pos.z)*Math.min(1,dt*5);
+  if(p.state==='EXITING'){p._et+=dt;const fade=1-Math.min(1,p._et/1.5);p.mesh.children.forEach(c=>{if(c.material){c.material.opacity=fade;c.material.transparent=true}});if(p._et>1.5){p.state='DONE';SC.remove(p.mesh)}}
+}
+
+/* ════════════════════════════════════════════════════════════
+   LOGGING
+   ════════════════════════════════════════════════════════════ */
+const logBuf=[];const logT0=performance.now();let logFlushIdx=0,logFlushT=0,snapT=0;
+let _log=[];
+function addLog(msg,col){_log.unshift({ts:getTS(),msg,col:col||'rgba(230,237,243,.8)'});if(_log.length>50)_log.pop();const el=G('elogitems');if(!el)return;el.innerHTML=_log.slice(0,14).map(e=>`<div class="eli" style="color:${e.col}"><span style="color:rgba(139,148,158,.5);margin-right:4px">${e.ts}</span>${e.msg}</div>`).join('')}
+function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOString(),_rel:+((performance.now()-logT0)/1000).toFixed(3),t:type,ev},data))}
+async function flushLog(){if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
+function dlLog(){const lines=logBuf.map(e=>JSON.stringify(e)).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=`elv_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.jsonl`;document.body.appendChild(a);a.click();document.body.removeChild(a)}
+window.dlLog=dlLog;
+function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))})}
+
+/* ════════════════════════════════════════════════════════════
+   UI FUNCTIONS
+   ════════════════════════════════════════════════════════════ */
+function bldCards(nE){
+  const c=G('ecards');if(!c)return;
+  const es=t('btnEstop'),er=t('btnResume');
+  c.innerHTML=Array.from({length:nE},(_,i)=>`<div class="ec"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px"><span style="font-size:11px;color:#c9944a;font-weight:500">E${i+1}</span><button id="eeb${i}" onclick="elvEmrg(${i})" style="font-size:10px;padding:1px 6px;border:0.5px solid rgba(248,81,73,.5);background:rgba(248,81,73,.08);color:#f85149;border-radius:3px;cursor:pointer;line-height:1.5">${es}</button></div><div class="ecf" id="ef${i}">1${t('floorF')}</div><div style="font-size:12px" id="es${i}">${t('stIdle')}</div><div class="dbar"><div class="dfill" id="fill${i}" style="width:0%"></div></div><div style="font-size:11px;color:#c9944a" id="eq${i}"></div><div style="font-size:11px;color:rgba(63,185,80,.65)" id="eid${i}"></div></div>`).join('');
+}
+function updCards(all){
+  const sm={IDLE:t('stIdle'),UP:t('stUp'),DOWN:t('stDown'),DOPN:t('stDopn'),DOPEN:t('stDopen'),DCLS:t('stDcls'),EMRG:t('stEmrg')};
+  const sc={IDLE:'rgba(139,148,158,.8)',UP:'#3fb950',DOWN:'#3fb950',DOPN:'#c9944a',DOPEN:'#c9944a',DCLS:'#c9944a',EMRG:'#f85149'};
+  all.forEach(s=>{
+    const ext=_twinMode==='ext'?_extElvState[s.id]:null;
+    const ef=G(`ef${s.id}`),es=G(`es${s.id}`),ef2=G(`fill${s.id}`),eq=G(`eq${s.id}`);
+    if(ext){
+      if(ef)ef.textContent=`${ext.floor}${t('floorF')}`;
+      if(es){const dl=[t('stDown'),t('stIdle'),t('stUp')][ext.dir+1];es.textContent=dl;es.style.color=ext.dir===0?'rgba(139,148,158,.8)':'#3fb950'}
+      if(ef2)ef2.style.width=`${(ext.doorPct||0)*100}%`;
+    }else{
+      if(ef)ef.textContent=`${s.df}${t('floorF')}`;if(es){es.textContent=sm[s.state]||'—';es.style.color=sc[s.state]||'rgba(139,148,158,.8)'}if(ef2)ef2.style.width=`${(s.dp*100).toFixed(0)}%`;if(eq)eq.textContent=s.stops.length?`→ ${s.stops.sort((a,b)=>a-b).join(' ')}`:''
+    }
+  });
+}
+function updStats(){
+  const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length,aw=svcCnt?(waitSum/svcCnt).toFixed(1):'0';
+  [['eswt',w],['esrd',r],['essv',svcCnt],['esaw',`${aw}s`]].forEach(([id,v])=>{const e=G(id);if(e)e.textContent=v});
+}
+function updWaiting(){
+  const now=performance.now()/1000;
+  const wp=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state));
+  const total=wp.reduce((s,p)=>s+(now-p.spawn),0),mx=wp.length?Math.max(...wp.map(p=>now-p.spawn)):0;
+  const et=G('ewtotal'),em=G('ewmax'),el=G('ewlist');
+  if(et)et.textContent=fmtS(total);
+  if(em){em.textContent=`${mx.toFixed(0)}s`;em.style.color=mx>60?'#f85149':mx>30?'#c9944a':'#3fb950'}
+  if(el){
+    if(!wp.length){el.innerHTML=`<div style="font-size:11px;color:rgba(139,148,158,.4)">${t('waitEmpty')}</div>`;return}
+    const byF={};wp.forEach(p=>{(byF[p.from]=byF[p.from]||[]).push(now-p.spawn)});
+    el.innerHTML=Object.keys(byF).map(Number).sort((a,b)=>a-b).map(f=>{
+      const ws=byF[f];
+      const dots=ws.map(w=>{const c=w>60?'#f85149':w>30?'#c9944a':'#58a6ff';return`<span style="color:${c};background:rgba(255,255,255,.05);border-radius:3px;padding:0 4px;margin-right:2px;font-size:11px">${w.toFixed(0)}s</span>`}).join('');
+      return`<div style="padding:2px 0;border-bottom:0.5px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:5px"><span style="color:#c9944a;font-weight:500;min-width:24px;font-size:12px">${f}${t('floorF')}</span><span style="color:rgba(139,148,158,.6);font-size:10px">${ws.length}人</span><div style="flex:1">${dots}</div></div>`;
+    }).join('');
+  }
+}
+function updOptUI(dem,res,period){
+  const ep=G('eperiod'),ed=G('edemand'),ei=G('eidle');
+  if(ep)ep.textContent=period;
+  if(ed&&dem){const mx=Math.max(...dem,.001);ed.innerHTML=dem.map((d,i)=>{const h=Math.max(2,Math.round((d/mx)*30));const it=d/mx,rv=Math.round(it*34+20),gv=Math.round(it*185+20),bv=Math.round(it*80+30);return`<div title="${i+1}${t('floorF')}" style="flex:1;height:${h}px;background:rgb(${rv},${gv},${bv});border-radius:1px 1px 0 0"></div>`}).join('')}
+  if(ei&&res)ei.innerHTML=res.pos.map((f,i)=>`<span style="display:inline-block;margin:1px 3px;background:rgba(201,148,74,.1);border:0.5px solid rgba(201,148,74,.35);border-radius:4px;padding:2px 6px">E${i+1}→<b>${f}${t('floorF')}</b></span>`).join('');
+}
+const dataFeed=[];
+function updFeed(){const el=G('efeed'),hdr=G('efhdr');if(hdr)hdr.textContent=dataFeed.length;if(!el)return;el.innerHTML=dataFeed.slice(0,16).map((r,i)=>`<div class="frow" style="background:${i===0?'rgba(201,148,74,.08)':i%2===0?'rgba(255,255,255,.02)':'transparent'}"><span style="color:rgba(139,148,158,.6);font-family:monospace">${r.ts}</span><span style="color:#e6edf3;font-weight:500">${r.n}</span><span style="color:#c9944a;letter-spacing:.3px">${r.calls.map(c=>`${c.fr}→${c.to}${t('floorF')}`).join('  ')}</span></div>`).join('')}
+
+/* ════════════════════════════════════════════════════════════
+   DIGITAL TWIN MODE TOGGLE
+   ════════════════════════════════════════════════════════════ */
+function setTwinMode(m){
+  _twinMode=m;
+  const ss=G('twin-sim-info'),ep=G('twin-ext-panel'),bs=G('btn-sim'),be=G('btn-ext'),el=G('agent-status');
+  if(ss)ss.style.display=m==='sim'?'':'none';if(ep)ep.style.display=m==='ext'?'':'none';
+  if(bs){bs.style.background=m==='sim'?'rgba(201,148,74,.2)':'rgba(255,255,255,.05)';bs.style.color=m==='sim'?'#c9944a':'rgba(139,148,158,.7)';bs.style.borderColor=m==='sim'?'rgba(201,148,74,.4)':'rgba(255,255,255,.15)'}
+  if(be){be.style.background=m==='ext'?'rgba(201,148,74,.2)':'rgba(255,255,255,.05)';be.style.color=m==='ext'?'#c9944a':'rgba(139,148,158,.7)';be.style.borderColor=m==='ext'?'rgba(201,148,74,.4)':'rgba(255,255,255,.15)'}
+  if(el)el.textContent=m==='sim'?t('agentRunSim'):t('agentRunExt');
+  if(m==='ext')_extElvState={};
+  addLog(m==='sim'?t('logTwinSim'):t('logTwinExt'),'#c9944a');
+  logEv('twin','mode_change',{mode:m});
+}
+window.setTwinMode=setTwinMode;
+
+function bldTwinInputs(){
+  const c=G('twin-elv-inputs');if(!c)return;
+  c.innerHTML=Array.from({length:cfg.elevs},(_,i)=>`<div style="display:flex;gap:4px;align-items:center;margin-bottom:3px"><span style="font-size:10px;color:rgba(139,148,158,.6);min-width:22px">E${i+1}</span><input id="tef${i}" type="number" min="1" max="${cfg.floors}" value="${Math.ceil(cfg.floors*(i+1)/(cfg.elevs+1))}" style="width:34px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.2);border-radius:4px;padding:2px 4px;font-size:11px"><span style="font-size:10px;color:rgba(139,148,158,.4)">${t('floorF')}</span><select id="ted${i}" style="flex:1;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.2);border-radius:4px;font-size:10px;padding:1px"><option value="0">${t('stIdle')}</option><option value="1">${t('stUp').replace(' ▲','')}</option><option value="-1">${t('stDown').replace(' ▼','')}</option></select><input id="tedp${i}" type="range" min="0" max="1" step="0.1" value="0" style="width:36px;accent-color:#c9944a" title="Door%"></div>`).join('');
+}
+function applyTwinInput(){
+  if(_twinMode!=='ext'){addLog(t('logNeedExt'),'#f85149');return}
+  for(let i=0;i<cfg.elevs;i++){const f=+(G(`tef${i}`)?.value)||1,d=+(G(`ted${i}`)?.value)||0,dp=+(G(`tedp${i}`)?.value)||0;window.DigitalTwin.setElevState(i,{floor:f,dir:d,doorPct:dp,stops:[]})}
+  addLog(t('logInject'),'#c9944a');
+}
+window.applyTwinInput=applyTwinInput;
+
+/* ════════════════════════════════════════════════════════════
+   Y-PAN CONTROLS
+   ════════════════════════════════════════════════════════════ */
+let _camYOff=0,_cx=0,_cy=8;
+function panCamY(d){
+  _camYOff=Math.max(-_cy,Math.min(_cy*1.8,_camYOff+d));
+  const ty=_cy+_camYOff;CAM.position.y+=(ty-controls.target.y);controls.target.set(controls.target.x,ty,controls.target.z);controls.update();
+}
+function resetCamY(){const ty=_cy;CAM.position.y+=(ty-controls.target.y);controls.target.set(controls.target.x,ty,controls.target.z);_camYOff=0;controls.update()}
+window.panCamY=panCamY;window.resetCamY=resetCamY;
+window.addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowUp'){panCamY(2);e.preventDefault()}if(e.altKey&&e.key==='ArrowDown'){panCamY(-2);e.preventDefault()}});
+
+/* ════════════════════════════════════════════════════════════
+   GLOBAL CONTROLS
+   ════════════════════════════════════════════════════════════ */
+let floorMult=[],globalMult=1;
+window.setFlM=(i,v)=>{if(i<floorMult.length)floorMult[i]=+v;const l=G('fm'+i);if(l)l.textContent=(+v)+'x'};
+function wRandFloor(){if(!floorMult.length)return Math.floor(Math.random()*cfg.floors)+1;const total=floorMult.reduce((a,b)=>a+b,0);if(!total)return Math.floor(Math.random()*cfg.floors)+1;let r=Math.random()*total;for(let i=0;i<floorMult.length;i++){r-=floorMult[i];if(r<=0)return i+1}return cfg.floors}
+function initFloorParams(){floorMult=Array.from({length:cfg.floors},()=>1.0);globalMult=1;const c=G('floorparams');if(!c)return;c.innerHTML=Array.from({length:cfg.floors},(_,i)=>`<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span style="font-size:10px;color:rgba(139,148,158,.7);min-width:22px">${i+1}${t('floorF')}</span><input type="range" min="0" max="5" step="0.5" value="1" style="flex:1;accent-color:#c9944a" oninput="setFlM(${i},this.value)"><span id="fm${i}" style="font-size:10px;color:#c9944a;min-width:24px">1x</span></div>`).join('')}
+function elvEmrg(i){const e=sys?.elevs?.[i];if(!e)return;if(e.oos){e.clear();addLog(`E${i+1} ${t('btnResume')}`,'#3fb950')}else{e.emrg();addLog(`E${i+1} ${t('btnEstop')}`,'#f85149')}const btn=G(`eeb${i}`);if(btn){btn.textContent=e.oos?t('btnResume'):t('btnEstop');btn.style.color=e.oos?'#3fb950':'#f85149';btn.style.borderColor=e.oos?'rgba(63,185,80,.5)':'rgba(248,81,73,.5)';btn.style.background=e.oos?'rgba(63,185,80,.08)':'rgba(248,81,73,.08)'}}
+window.elvEmrg=elvEmrg;
+function dispatchAll(){if(!sys)return;paxList.forEach(p=>{if(p.state==='BOARDING'){p.state='WAITING';p.eid=null;p._bT=null}});sys.elevs.forEach(e=>{if(!e.oos&&e.state==='IDLE'&&e.stops.size){const f=Math.round(e.pos);if(e.stops.has(f)&&Math.abs(e.pos-f)<ARR+.12&&e._ds==='closed'){e._arr(f)}else{e._pick()}}});addLog(t('logDispatch'),'#c9944a')}
+window.dispatchAll=dispatchAll;
+function toggleDynParams(){const d=G('edynparams'),tt=G('edpt');if(!d)return;const open=d.style.display==='none';d.style.display=open?'block':'none';if(tt)tt.textContent=open?'▼':'▶'}
+window.toggleDynParams=toggleDynParams;
+function dblSpawn(){globalMult=Math.min(8,globalMult*2);addLog(`${t('logMult')}${globalMult}`,'#c9944a')}
+window.dblSpawn=dblSpawn;
+function resetSpawn(){globalMult=1;floorMult.fill(1.0);const c=G('floorparams');if(c){c.querySelectorAll('input[type=range]').forEach((s,i)=>{s.value=1;const l=G(`fm${i}`);if(l)l.textContent='1x'})};addLog(t('logReset'),'#3fb950')}
+window.resetSpawn=resetSpawn;
+
+/* ════════════════════════════════════════════════════════════
+   SETUP & OPTIMIZATION
+   ════════════════════════════════════════════════════════════ */
+let cfg={floors:10,elevs:3,rate:5};let sys,bG,e3ds,agent;
+let spT=0,optT=0,wtT=0;
+
+function runOpt(){
+  if(!sys||!agent)return;
+  const r=agent.optimize();
+  sys.setIP(r.result.pos);
+  r.result.pos.forEach((f,i)=>{const el=G(`eid${i}`);if(el)el.textContent=`→${f}${t('floorF')}`});
+  const ol=G('eoptlast'),oc=G('eoptcost');
+  if(ol)ol.textContent=getTS();if(oc)oc.textContent=`cost:${r.result.cost}`;
+  updOptUI(r.demand,r.result,r.period);
+  addLog(`${t('logOptDone')}${r.result.cost}`,'#3fb950');
+  logEv('opt','run',{h:new Date().getHours(),period:r.period,positions:r.result.pos,cost:+r.result.cost,press:agent.getPressCounts()});
+}
+
+function setup(c){
+  cfg={...cfg,...c};
+  if(bG)SC.remove(bG);if(e3ds)e3ds.forEach(e=>e.destroy());
+  paxList.forEach(p=>SC.remove(p.mesh));paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
+  dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
+  sys=new ES(cfg.elevs,cfg.floors);sys.setAlgo(G('ealgo')?.value||'LOOK');
+  agent=new ElevatorAgent(cfg.floors,cfg.elevs);
+  window.ElevatorAgent=agent;
+  bG=mkBld(cfg.floors,cfg.elevs);e3ds=Array.from({length:cfg.elevs},(_,i)=>new E3D(i,cfg.floors));
+  bldCards(cfg.elevs);initFloorParams();bldTwinInputs();
+  const a2=G('ealgo2');if(a2)a2.textContent=sys.algo;
+  const el=G('agent-status');if(el)el.textContent=t('agentRunSim');
+
+  sys.on('arr',({eid,f})=>{addLog(`E${eid+1} → ${f}${t('floorF')}`,'#c9944a');logEv('elev','arr',{eid,f,stops:[...sys.elevs[eid].stops]})});
+  sys.on('dopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} 开门`,'#e8b86d');brdPax(eid,f);logEv('elev','dopen',{eid,f})});
+  sys.on('dcls',({eid})=>{const e=sys.elevs[eid];logEv('elev','dcls',{eid,f:Math.round(e.pos),stops:[...e.stops]})});
+  sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);logEv('elev','call',{fl,dir,eid})});
+  sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
+  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(Math.random()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+Math.random()*.8);px._tx=px.mesh.position.x+(Math.random()-.5)*1.5;px._tz=px.mesh.position.z+Math.random()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
+
+  logEv('sys','start',{floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,algo:sys.algo});
+  const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
+  {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
+  layoutPanels(cfg.elevs);
+  runOpt();addLog(t('logStart'),'#3fb950');
+  setTimeout(()=>{if(sys&&cfg.floors>=4){sys.call(1,UP);sys.call(Math.ceil(cfg.floors/2),UP);if(cfg.floors>5)sys.call(cfg.floors,DOWN)}},600);
+}
+
+/* FIX: Board ANY passenger at floor F, not just eid-matched ones */
+function brdPax(eid,floor){
+  paxList.filter(p=>(p.state==='BOARDING'||p.state==='WAITING')&&p.from===floor).forEach(p=>{
+    if(sys.board(eid,{id:p.id,to:p.to})){p.state='RIDING';const now=performance.now()/1000;p.waitT=now-p.spawn;p.mesh.visible=false;logEv('pax','board',{pid:p.id,eid,f:floor,to:p.to,wait_s:+p.waitT.toFixed(2)})}
+  });
+}
+
+G('esfl')?.addEventListener('input',e=>{const v=G('evf');if(v)v.textContent=e.target.value;cfg.floors=+e.target.value});
+G('esel')?.addEventListener('input',e=>{const v=G('eve');if(v)v.textContent=e.target.value;cfg.elevs=+e.target.value});
+G('essl')?.addEventListener('input',e=>{const v=G('evs');if(v)v.textContent=e.target.value;cfg.rate=+e.target.value});
+G('ealgo')?.addEventListener('change',e=>{sys?.setAlgo(e.target.value);const ab=G('ealgo2');if(ab)ab.textContent=e.target.value;addLog(`${t('logAlgo')}${e.target.value}`,'#e8b86d')});
+G('ebap')?.addEventListener('click',()=>setup(cfg));
+G('ebem')?.addEventListener('click',()=>{sys?.emrg();addLog(t('logEmrg'),'#f85149')});
+G('ebcl')?.addEventListener('click',()=>{sys?.clear();addLog(t('logClear'),'#3fb950')});
+G('ebon')?.addEventListener('click',()=>runOpt());
+
+/* ════════════════════════════════════════════════════════════
+   ANIMATION LOOP
+   ════════════════════════════════════════════════════════════ */
+let last=performance.now();
+function animate(now){
+  requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.05);last=now;controls.update();
+  if(!sys){R.render(SC,CAM);return}
+  if(_twinMode==='sim')sys.update(dt);
+  const all=sys.getAll();
+  e3ds?.forEach((e,i)=>e.update(dt,all[i]));
+  spT+=dt;
+  if(spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
+    spT=0;const base=Math.random()<.6?1:Math.random()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
+    const batch={ts:getTS(),n,calls:[]};
+    for(let k=0;k<n;k++){let fr=wRandFloor(),to=wRandFloor();while(to===fr)to=wRandFloor();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
+    dataFeed.unshift(batch);if(dataFeed.length>80)dataFeed.pop();updFeed();
+  }
+  const _now=performance.now()/1000;
+  paxList.forEach(p=>{
+    if(_twinMode==='sim'&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=_now;p._tx=shX(eid)+(Math.random()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(_now-p.spawn).toFixed(2)})}}
+    if(p.state==='BOARDING'&&p._bT&&_now-p._bT>120){p.state='WAITING';p.eid=null;p._bT=null}
+    paxTick(p,dt);
+  });
+  paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
+  if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);rm.forEach(p=>SC.remove(p.mesh));paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
+  optT+=dt;if(optT>=30){optT=0;setTimeout(runOpt,0)}
+  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting()}
+  snapT+=dt;if(snapT>=5){snapT=0;logSnap()}
+  logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
+  updCards(all);updStats();R.render(SC,CAM);
+}
+
+window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(innerWidth,h);CAM.aspect=innerWidth/h;CAM.updateProjectionMatrix()});
+
+// Init
+applyLang();
+setup(cfg);
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
