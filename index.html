@@ -306,25 +306,44 @@ function _collapse(id){
   const bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr'),btn=p.querySelector('.fp-min');
   if(bd&&!bd.classList.contains('mz')){bd.classList.add('mz');if(hdr)hdr.classList.add('mz');if(btn)btn.textContent='+'}
 }
+function _expand(id){
+  const p=document.getElementById(id);if(!p)return;
+  const bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr'),btn=p.querySelector('.fp-min');
+  if(bd){bd.classList.remove('mz');if(hdr)hdr.classList.remove('mz');if(btn)btn.textContent='—'}
+}
 function layoutPanels(nE){
   localStorage.removeItem(LS_KEY);
-  const M=12,GAP=8,NAV=44,W=Math.max(innerWidth,800);
-  const LW=242,RW=262,LX=M,RX=W-RW-M,TOP=NAV+M;
-  /* Left column: Config (top) + Optimizer (below) */
-  const CFG_H=374,OPT_H=218;
-  _setPos('p-cfg',LX,TOP,LW,CFG_H);
-  _setPos('p-opt',LX,TOP+CFG_H+GAP,LW,OPT_H);
-  /* Event Log collapsed below opt */
-  _setPos('p-log',LX,TOP+CFG_H+GAP+OPT_H+GAP,LW,null);_collapse('p-log');
-  /* Right column: Elevator Status + Waiting + Stats */
-  const ELV_H=Math.min(38+nE*130,370),WAIT_H=248,STAT_H=64;
-  _setPos('p-elv',RX,TOP,RW,ELV_H);
-  _setPos('p-wait',RX,TOP+ELV_H+GAP,RW,WAIT_H);
-  _setPos('p-stat',RX,TOP+ELV_H+GAP+WAIT_H+GAP,RW,STAT_H);
-  /* Feed + Twin collapsed below stats */
-  const afterStat=TOP+ELV_H+GAP+WAIT_H+GAP+STAT_H+GAP;
-  _setPos('p-feed',RX,afterStat,RW,null);_collapse('p-feed');
-  _setPos('p-twin',RX,afterStat+38,RW,null);_collapse('p-twin');
+  const M=10,GAP=10,NAV=44;
+  const W=Math.max(innerWidth,900),H=Math.max(innerHeight,640);
+  const TOP=NAV+M, AVAIL=H-TOP-M;
+
+  /* 4-column layout (matches user's Safari arrangement):
+     Col1: Config | Col2: Opt+Log+Twin | [3D center] | Col3: Stat+Elv | Col4: Wait+Feed */
+  const C1W=222,C2W=220,C3W=218,C4W=238;
+  const C1X=M, C2X=C1X+C1W+GAP;
+  const C4X=W-M-C4W, C3X=C4X-GAP-C3W;
+
+  /* Col 1 — p-cfg full height */
+  _setPos('p-cfg',C1X,TOP,C1W,AVAIL);
+
+  /* Col 2 — p-opt / p-log (open) / p-twin (open), proportional heights */
+  const OPT_H=Math.min(228,Math.round(AVAIL*.32));
+  const LOG_H=Math.min(252,Math.round(AVAIL*.36));
+  const TWIN_H=Math.max(150,AVAIL-OPT_H-GAP-LOG_H-GAP);
+  _setPos('p-opt',C2X,TOP,C2W,OPT_H);
+  _expand('p-log');_setPos('p-log',C2X,TOP+OPT_H+GAP,C2W,LOG_H);
+  _expand('p-twin');_setPos('p-twin',C2X,TOP+OPT_H+GAP+LOG_H+GAP,C2W,TWIN_H);
+
+  /* Col 3 — p-stat (compact) / p-elv */
+  const STAT_H=98, ELV_H=Math.min(38+nE*132,Math.max(180,AVAIL-STAT_H-GAP));
+  _setPos('p-stat',C3X,TOP,C3W,STAT_H);
+  _setPos('p-elv',C3X,TOP+STAT_H+GAP,C3W,ELV_H);
+
+  /* Col 4 — p-wait / p-feed (open) */
+  const WAIT_H=Math.min(262,Math.round(AVAIL*.38));
+  const FEED_H=Math.max(160,AVAIL-WAIT_H-GAP);
+  _setPos('p-wait',C4X,TOP,C4W,WAIT_H);
+  _expand('p-feed');_setPos('p-feed',C4X,TOP+WAIT_H+GAP,C4W,FEED_H);
 }
 
 /* ════════════════════════════════════════════════════════════
