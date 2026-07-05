@@ -138,6 +138,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="已送" data-en="Served">已送</span> <b id="essv" style="color:#c9944a">0</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="均等待" data-en="Avg Wait">均等待</span> <b id="esaw" style="color:#c9944a">0s</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="算法" data-en="Algo">算法</span> <b id="ealgo2" style="color:#e8b86d">LOOK</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="行程" data-en="Travel">行程</span> <b id="estrvl" style="color:#58a6ff">0m</b></span>
     </div>
   </div>
 </div>
@@ -236,7 +237,7 @@ const D = {
     xArrival:'E${eid+1} 到 ${f}F', xDopen:'E${eid+1} ${f}F 开门',
     xCall:'${fl}F → E${eid+1}', xImv:'E${eid+1} 待机→${to}F',
     optDone:'优化完成 代价',
-    ypanLbl:'视角移动', ypanRst:'复位', ypanHint:'右键拖拽平移',
+    ypanLbl:'视角移动', ypanRst:'复位', ypanHint:'右键拖拽 · P暂停 · R复位 · O优化',
     floorF:'F',
   },
   en: {
@@ -254,7 +255,7 @@ const D = {
     xArrival:'E${eid+1} arrived floor ${f}', xDopen:'E${eid+1} floor ${f} door open',
     xCall:'${fl}F → E${eid+1}', xImv:'E${eid+1} standby→${to}F',
     optDone:'Optimized cost=',
-    ypanLbl:'View Shift', ypanRst:'Reset', ypanHint:'Right-drag to pan',
+    ypanLbl:'View Shift', ypanRst:'Reset', ypanHint:'Right-drag · P=pause · R=reset · O=opt',
     floorF:'F',
   }
 };
@@ -361,7 +362,7 @@ function G(id){return document.getElementById(id)}
    LAYER 1 — CORE ELEVATOR PHYSICS
    ════════════════════════════════════════════════════════════ */
 class EU{
-  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={}}
+  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={};this.dist=0}
   on(e,f){(this._L[e]??=[]).push(f);return this}
   _emit(e,d){(this._L[e]??[]).forEach(f=>f(d))}
   addStop(f){
@@ -383,7 +384,7 @@ class EU{
     if(d!==this.dir){this.dir=d;this.state=d===1?'UP':'DOWN'}
     const br=this.vel*this.vel/(2*ACC);
     const nv=ad<=br+.01?(()=>{const v=this.vel-ACC*dt*d;return Math.abs(v)<.05?0:v})():Math.max(-SPD,Math.min(SPD,this.vel+ACC*dt*d));
-    this.vel=nv;this.pos+=nv*dt;if(Math.abs(this.pos-tgt)<ARR){this.pos=tgt;this.vel=0;this._arr(tgt)}
+    this.vel=nv;this.pos+=nv*dt;this.dist+=Math.abs(nv*dt);if(Math.abs(this.pos-tgt)<ARR){this.pos=tgt;this.vel=0;this._arr(tgt)}
   }
   _arr(f){this.stops.delete(f);this.state='DOPN';this._ds='opening';this._dt=0;const out=this.pax.filter(p=>p.to===f);out.forEach(p=>this._emit('exit',{eid:this.id,f,p}));this.pax=this.pax.filter(p=>p.to!==f);this._emit('arr',{eid:this.id,f})}
   _dU(dt){
@@ -394,7 +395,7 @@ class EU{
   }
   emrg(){this.vel=0;this.state='EMRG';this.oos=true}
   clear(){this.oos=false;this.state='IDLE';this.stops.clear()}
-  get st(){return{id:this.id,f:this.pos,df:Math.round(this.pos),dir:this.dir,state:this.state,dp:this.dp,pax:this.pax.length,stops:[...this.stops]}}
+  get st(){return{id:this.id,f:this.pos,df:Math.round(this.pos),dir:this.dir,state:this.state,dp:this.dp,pax:this.pax.length,stops:[...this.stops],dist:this.dist}}
 }
 class ES{
   constructor(nE,nF){this.nF=nF;this._L={};this.algo='LOOK';this._ip=null;this.elevs=Array.from({length:nE},(_,i)=>new EU(i,nF));this.elevs.forEach(e=>['exit','arr','dopen','dcls'].forEach(ev=>e.on(ev,d=>this._emit(ev,d))))}
@@ -433,7 +434,7 @@ class IS{
   optimize(dem,nE,nF){let cur=Array.from({length:nE},(_,i)=>Math.max(1,Math.round((i+.5)*nF/nE)));const cost=p=>{let c=0;for(let f=1;f<=nF;f++){const d=dem[f-1]||0;c+=d*Math.min(...p.map(x=>Math.abs(x-f)))}return c};let T=5,best=[...cur],bc=cost(cur);for(let i=0;i<800;i++){T*=.9944;const nx=[...cur];nx[Math.floor(Math.random()*nE)]=Math.floor(Math.random()*nF)+1;const nc=cost(nx),dc=nc-cost(cur);if(dc<0||Math.random()<Math.exp(-dc/Math.max(T,1e-4))){cur=nx;if(nc<bc){bc=nc;best=[...nx]}}}return{pos:best,cost:bc.toFixed(3)}}
 }
 class ElevatorAgent{
-  constructor(nF,nE){this.nF=nF;this.nE=nE;this._ta=new TA(nF);this._opt=new IS();this._pressCount=new Array(nF).fill(0);this.idlePos=null}
+  constructor(nF,nE){this.nF=nF;this.nE=nE;this._ta=new TA(nF);this._opt=new IS();this._pressCount=new Array(nF).fill(0);this.idlePos=null;this._dispCnt=new Array(nE).fill(0)}
   recordCall(floor){if(floor>=1&&floor<=this.nF){this._pressCount[floor-1]++;this._ta.record(floor)}}
   optimize(){const h=new Date().getHours();const hd=this._ta.demand(h);const pt=this._pressCount.reduce((a,b)=>a+b,0);const dem=hd.map((v,i)=>{const pn=pt>0?this._pressCount[i]/pt:1/this.nF;return v*.65+pn*.35});const res=this._opt.optimize(dem,this.nE,this.nF);this.idlePos=res.pos;return{demand:dem,result:res,period:this._ta.label(h)}}
   getDemand(){return this._ta.demand(new Date().getHours())}
@@ -483,6 +484,9 @@ function mkBld(nF,nE){
   }
   [[bw+1.4,bh,.08,cx,bh/2,SD/2+.4],[bw+1.4,bh,.08,cx,bh/2,-SD/2-.4],[.08,bh,SD+1.8,cx-bw/2-.65,bh/2,.3],[.08,bh,SD+1.8,cx+bw/2+.65,bh/2,.3]].forEach(([w,h,d,ox,oy,oz])=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mGl);m.position.set(ox,oy,oz);grp.add(m)});
   const rf=new THREE.Mesh(new THREE.BoxGeometry(bw+1.4,.12,SD+1.8),new THREE.MeshLambertMaterial({color:0xc0b8a8}));rf.position.set(cx,bh+.06,.3);grp.add(rf);
+  /* Floor call indicator strips — glow amber when passengers waiting */
+  _floorLEDs=[];
+  for(let f=0;f<nF;f++){const lm=new THREE.MeshStandardMaterial({color:0x080604,emissive:new THREE.Color(0xe8b86d),emissiveIntensity:0,roughness:.3});const led=new THREE.Mesh(new THREE.BoxGeometry(bw+.8,.04,.06),lm);led.position.set(cx,f*FH+.1,SD/2+.46);grp.add(led);_floorLEDs.push(led)}
   SC.add(grp);return grp;
 }
 
@@ -579,6 +583,7 @@ function updCards(all){
 function updStats(){
   const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length,aw=svcCnt?(waitSum/svcCnt).toFixed(1):'0';
   [['eswt',w],['esrd',r],['essv',svcCnt],['esaw',`${aw}s`]].forEach(([id,v])=>{const e=G(id);if(e)e.textContent=v});
+  const td=G('estrvl');if(td&&sys){const tot=sys.elevs.reduce((s,e)=>s+e.dist,0);td.textContent=`${(tot*FH).toFixed(0)}m`}
 }
 function updWaiting(){
   const now=performance.now()/1000;
@@ -643,7 +648,9 @@ function panCamY(d){
 }
 function resetCamY(){const ty=_cy;CAM.position.y+=(ty-controls.target.y);controls.target.set(controls.target.x,ty,controls.target.z);_camYOff=0;controls.update()}
 window.panCamY=panCamY;window.resetCamY=resetCamY;
-window.addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowUp'){panCamY(2);e.preventDefault()}if(e.altKey&&e.key==='ArrowDown'){panCamY(-2);e.preventDefault()}});
+function togglePause(){_paused=!_paused;addLog(_paused?(lang==='zh'?'⏸ 已暂停':'⏸ Paused'):(lang==='zh'?'▶ 恢复运行':'▶ Resumed'),_paused?'#f85149':'#3fb950')}
+window.togglePause=togglePause;
+window.addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowUp'){panCamY(2);e.preventDefault()}if(e.altKey&&e.key==='ArrowDown'){panCamY(-2);e.preventDefault()}if(!e.ctrlKey&&!e.metaKey&&!e.altKey){if(e.code==='KeyP'){togglePause();e.preventDefault()}else if(e.code==='KeyR'){resetCamY();e.preventDefault()}else if(e.code==='KeyO'){if(sys&&agent)runOpt();e.preventDefault()}}});
 
 /* ════════════════════════════════════════════════════════════
    GLOBAL CONTROLS
@@ -667,13 +674,14 @@ window.resetSpawn=resetSpawn;
    SETUP & OPTIMIZATION
    ════════════════════════════════════════════════════════════ */
 let cfg={floors:10,elevs:3,rate:5};let sys,bG,e3ds,agent;
+let _floorLEDs=[],_paused=false;
 let spT=0,optT=0,wtT=0;
 
 function runOpt(){
   if(!sys||!agent)return;
   const r=agent.optimize();
   sys.setIP(r.result.pos);
-  r.result.pos.forEach((f,i)=>{const el=G(`eid${i}`);if(el)el.textContent=`→${f}${t('floorF')}`});
+  r.result.pos.forEach((f,i)=>{const el=G(`eid${i}`);const cnt=agent._dispCnt?.[i]||0;if(el)el.textContent=`→${f}${t('floorF')}${cnt?' ×'+cnt:''}`});
   const ol=G('eoptlast'),oc=G('eoptcost');
   if(ol)ol.textContent=getTS();if(oc)oc.textContent=`cost:${r.result.cost}`;
   updOptUI(r.demand,r.result,r.period);
@@ -697,7 +705,7 @@ function setup(c){
   sys.on('arr',({eid,f})=>{addLog(`E${eid+1} → ${f}${t('floorF')}`,'#c9944a');logEv('elev','arr',{eid,f,stops:[...sys.elevs[eid].stops]})});
   sys.on('dopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} 开门`,'#e8b86d');brdPax(eid,f);logEv('elev','dopen',{eid,f})});
   sys.on('dcls',({eid})=>{const e=sys.elevs[eid];logEv('elev','dcls',{eid,f:Math.round(e.pos),stops:[...e.stops]})});
-  sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);logEv('elev','call',{fl,dir,eid})});
+  sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);if(agent._dispCnt)agent._dispCnt[eid]=(agent._dispCnt[eid]||0)+1;logEv('elev','call',{fl,dir,eid})});
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
   sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(Math.random()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+Math.random()*.8);px._tx=px.mesh.position.x+(Math.random()-.5)*1.5;px._tz=px.mesh.position.z+Math.random()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
 
@@ -732,11 +740,11 @@ let last=performance.now();
 function animate(now){
   requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.05);last=now;controls.update();
   if(!sys){R.render(SC,CAM);return}
-  if(_twinMode==='sim')sys.update(dt);
+  if(_twinMode==='sim'&&!_paused)sys.update(dt);
   const all=sys.getAll();
   e3ds?.forEach((e,i)=>e.update(dt,all[i]));
-  spT+=dt;
-  if(spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
+  if(!_paused)spT+=dt;
+  if(!_paused&&spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
     spT=0;const base=Math.random()<.6?1:Math.random()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
     const batch={ts:getTS(),n,calls:[]};
     for(let k=0;k<n;k++){let fr=wRandFloor(),to=wRandFloor();while(to===fr)to=wRandFloor();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
@@ -744,8 +752,8 @@ function animate(now){
   }
   const _now=performance.now()/1000;
   paxList.forEach(p=>{
-    if(_twinMode==='sim'&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=_now;p._tx=shX(eid)+(Math.random()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(_now-p.spawn).toFixed(2)})}}
-    if(p.state==='BOARDING'&&p._bT&&_now-p._bT>120){p.state='WAITING';p.eid=null;p._bT=null}
+    if(_twinMode==='sim'&&!_paused&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=_now;p._tx=shX(eid)+(Math.random()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(_now-p.spawn).toFixed(2)})}}
+    if(p.state==='BOARDING'&&p._bT&&_now-p._bT>90){p.state='WAITING';p.eid=null;p._bT=null}
     paxTick(p,dt);
   });
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
@@ -754,10 +762,11 @@ function animate(now){
   wtT+=dt;if(wtT>=.5){wtT=0;updWaiting()}
   snapT+=dt;if(snapT>=5){snapT=0;logSnap()}
   logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
+  if(_floorLEDs.length){const wbf=new Array(cfg.floors).fill(0);paxList.forEach(p=>{if(p.state==='WAITING'||p.state==='BOARDING')wbf[p.from-1]=(wbf[p.from-1]||0)+1});_floorLEDs.forEach((led,f)=>{if(led?.material)led.material.emissiveIntensity=Math.min(1.2,(wbf[f]||0)*.4)})}
   updCards(all);updStats();R.render(SC,CAM);
 }
 
-window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(innerWidth,h);CAM.aspect=innerWidth/h;CAM.updateProjectionMatrix()});
+let _rzT;window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(innerWidth,h);CAM.aspect=innerWidth/h;CAM.updateProjectionMatrix();clearTimeout(_rzT);_rzT=setTimeout(()=>{if(cfg?.elevs)layoutPanels(cfg.elevs)},350)});
 
 // Init
 applyLang();
