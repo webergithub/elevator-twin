@@ -44,6 +44,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
 #ypan-ctrl button{background:rgba(255,255,255,.08);border:none;color:#e6edf3;width:24px;height:24px;border-radius:12px;cursor:pointer;font-size:14px;line-height:1}
 #ypan-ctrl button:hover{background:rgba(201,148,74,.18)}
 #ypan-ctrl span{font-size:10px;color:rgba(139,148,158,.45);padding:0 2px;user-select:none}
+#ypan-ctrl .spd,#ypan-ctrl #tp-pause{width:auto;padding:0 7px;font-size:11px;font-weight:600}
 </style>
 </head>
 <body>
@@ -59,6 +60,12 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
 
 <!-- Y-pan strip -->
 <div id="ypan-ctrl">
+  <button id="tp-pause" onclick="togglePause()" title="Pause/Resume (P)">⏸</button>
+  <button class="spd" data-s="1" onclick="setSpeed(1)">1×</button>
+  <button class="spd" data-s="2" onclick="setSpeed(2)">2×</button>
+  <button class="spd" data-s="4" onclick="setSpeed(4)">4×</button>
+  <button class="spd" data-s="8" onclick="setSpeed(8)">8×</button>
+  <span>·</span>
   <button onclick="panCamY(4)">↑</button>
   <span id="ypan-lbl">视角移动</span>
   <button onclick="panCamY(-4)">↓</button>
@@ -283,6 +290,7 @@ window.toggleLang = toggleLang;
    ════════════════════════════════════════════════════════════ */
 let zTop=100;
 const LS_KEY='elv-twin-panels-v2';
+let _userMoved=false;
 function savePS(){const st={};document.querySelectorAll('.fp[id]').forEach(p=>{const bd=p.querySelector('.fp-bd');st[p.id]={l:p.style.left,t:p.style.top,r:p.style.right,b:p.style.bottom,w:p.style.width,h:p.style.height,mz:bd?bd.classList.contains('mz'):false}});try{localStorage.setItem(LS_KEY,JSON.stringify(st))}catch(e){}}
 function restorePS(){let st;try{st=JSON.parse(localStorage.getItem(LS_KEY)||'{}')}catch(e){st={}}document.querySelectorAll('.fp[id]').forEach(p=>{const d=st[p.id];if(!d)return;if(d.l){p.style.left=d.l;p.style.right='auto'}else if(d.r){p.style.right=d.r;p.style.left='auto'}if(d.t){p.style.top=d.t;p.style.bottom='auto'}else if(d.b){p.style.bottom=d.b;p.style.top='auto'}if(d.w)p.style.width=d.w;if(d.h)p.style.height=d.h;if(d.mz){const bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr'),btn=p.querySelector('.fp-min');if(bd)bd.classList.add('mz');if(hdr)hdr.classList.add('mz');if(btn)btn.textContent='+'}})}
 function fmin(btn){const p=btn.closest('.fp'),bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr');const mz=bd.classList.toggle('mz');hdr.classList.toggle('mz',mz);btn.textContent=mz?'+':'—';savePS()}
@@ -352,7 +360,7 @@ function layoutPanels(nE){
    ════════════════════════════════════════════════════════════ */
 const FH=4,SW=2.8,SD=2.6,SG=0.6,CW=SW-.24,CD=SD-.18,CH=FH*.82;
 const DW=CW/2-.04,DH=CH-.24,DT=.06,UP=1,NONE=0,DOWN=-1;
-const SPD=2.5,ACC=1.8,DHOLD=3.0,DANIM=0.8,ARR=0.03;
+const SPD=2.5,ACC=1.8,DHOLD=3.0,DANIM=0.8,ARR=0.03,CAP=10;
 const shX=i=>i*(SW+SG),bW=n=>n*SW+(n-1)*SG;
 function getTS(){const t=new Date();return`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`}
 function fmtS(s){if(s<60)return s.toFixed(0)+'s';const m=Math.floor(s/60),r=Math.round(s%60);return r?`${m}m${r}s`:`${m}m`}
@@ -362,12 +370,14 @@ function G(id){return document.getElementById(id)}
    LAYER 1 — CORE ELEVATOR PHYSICS
    ════════════════════════════════════════════════════════════ */
 class EU{
-  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={};this.dist=0}
+  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={};this.dist=0;this.cap=CAP}
+  get full(){return this.pax.length>=this.cap}
   on(e,f){(this._L[e]??=[]).push(f);return this}
   _emit(e,d){(this._L[e]??[]).forEach(f=>f(d))}
   addStop(f){
     if(f>=1&&f<=this.nF){
-      if(this.state==='IDLE'&&this._ds==='closed'&&Math.abs(this.pos-f)<ARR+.12){this._arr(f)}
+      if(this.state==='DCLS'&&Math.abs(this.pos-f)<ARR+.12){this._ds='opening';this._dt=(1-this.dp)*DANIM;this.state='DOPN';this._emit('reopen',{eid:this.id,f:Math.round(this.pos)})}
+      else if(this.state==='IDLE'&&this._ds==='closed'&&Math.abs(this.pos-f)<ARR+.12){this._arr(f)}
       else if((this.state==='DOPN'||this.state==='DOPEN')&&Math.abs(this.pos-f)<ARR+.12){}
       else{this.stops.add(f);if(this.state==='IDLE')this._pick()}
     }
@@ -394,17 +404,19 @@ class EU{
     else if(this._ds==='closing'){this.dp=Math.max(0,1-this._dt/DANIM);if(this.dp<=0){this._ds='closed';this._dt=0;this.state='IDLE';this._emit('dcls',{eid:this.id})}}
   }
   emrg(){this.vel=0;this.state='EMRG';this.oos=true}
-  clear(){this.oos=false;this.state='IDLE';this.stops.clear()}
+  clear(){this.oos=false;this.state='IDLE';this.stops.clear();this.pax.forEach(p=>this.stops.add(p.to));if(this.stops.size)this._pick()}
   get st(){return{id:this.id,f:this.pos,df:Math.round(this.pos),dir:this.dir,state:this.state,dp:this.dp,pax:this.pax.length,stops:[...this.stops],dist:this.dist}}
 }
 class ES{
-  constructor(nE,nF){this.nF=nF;this._L={};this.algo='LOOK';this._ip=null;this.elevs=Array.from({length:nE},(_,i)=>new EU(i,nF));this.elevs.forEach(e=>['exit','arr','dopen','dcls'].forEach(ev=>e.on(ev,d=>this._emit(ev,d))))}
+  constructor(nE,nF){this.nF=nF;this._L={};this.algo='LOOK';this._ip=null;this.elevs=Array.from({length:nE},(_,i)=>new EU(i,nF));this.elevs.forEach(e=>['exit','arr','dopen','dcls','reopen'].forEach(ev=>e.on(ev,d=>this._emit(ev,d))))}
   on(e,f){(this._L[e]??=[]).push(f);return this}
   _emit(e,d){(this._L[e]??[]).forEach(f=>f(d))}
   setAlgo(a){this.algo=a}
   setIP(p){this._ip=p}
   _disp(fl,dir){
-    const av=this.elevs.filter(e=>!e.oos);if(!av.length)return null;
+    let av=this.elevs.filter(e=>!e.oos&&!e.full);
+    if(!av.length)av=this.elevs.filter(e=>!e.oos);
+    if(!av.length)return null;
     if(this.algo==='NEAREST')return av.reduce((a,b)=>Math.abs(a.pos-fl)<Math.abs(b.pos-fl)?a:b);
     if(this.algo==='DCS')return av.reduce((a,b)=>a.stops.size<=b.stops.size?a:b);
     const t1=av.filter(e=>(e.dir===dir&&dir===UP&&e.pos<=fl)||(e.dir===dir&&dir===DOWN&&e.pos>=fl));
@@ -447,8 +459,10 @@ class ElevatorAgent{
 let _twinMode='sim';
 let _extElvState={};
 
+function disposeObj(root){if(!root)return;root.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m&&m.dispose())}})}
+
 window.DigitalTwin={
-  setElevState(id,st){_extElvState[id]={...st};const el=G('agent-status');if(el)el.textContent=`E${id+1}: ${st.floor||'?'}F`;logEv('twin','ext_state',{id,...st})},
+  setElevState(id,st){const prev=_extElvState[id]||{};const s={...st};if(!Number.isFinite(s.floor))s.floor=Number.isFinite(prev.floor)?prev.floor:1;if(!Number.isFinite(s.dir))s.dir=Number.isFinite(prev.dir)?prev.dir:0;if(!Number.isFinite(s.doorPct))s.doorPct=Number.isFinite(prev.doorPct)?prev.doorPct:0;_extElvState[id]=s;const el=G('agent-status');if(el)el.textContent=`E${id+1}: ${s.floor}F`;logEv('twin','ext_state',{id,...s})},
   recordFloorCall(floor,dir){agent?.recordCall(floor);if(sys)sys.call(floor,dir>=0?UP:DOWN)},
   getRecommendation(){return{idlePos:agent?.idlePos,demand:agent?.getDemand(),pressCounts:agent?.getPressCounts()}}
 };
@@ -509,7 +523,8 @@ class E3D{
     this._cb=mkC(0);this._cb2=mkC(-SW*.12);this._cb3=mkC(SW*.12);
   }
   _updVis(ty,dp,dt){
-    this._sy+=(ty-this._sy)*Math.min(1,dt*16);this.grp.position.y=this._sy;
+    if(!Number.isFinite(ty))ty=Number.isFinite(this._sy)?this._sy:0;
+    this._sy+=(ty-this._sy)*Math.min(1,dt*16);if(!Number.isFinite(this._sy))this._sy=ty;this.grp.position.y=this._sy;
     const top=this.nF*FH+2-this._sy;
     [this._cb,this._cb2,this._cb3].forEach((c,i)=>{const pa=c.geometry.attributes.position,ox=[0,-SW*.12,SW*.12][i];pa.setXYZ(1,ox,top-(i?.2:0),0);pa.needsUpdate=true});
     const t=Math.max(0,Math.min(1,dp));
@@ -517,10 +532,10 @@ class E3D{
     this._il.intensity=t*2.2;this._ic.material.emissiveIntensity=t*.9;
   }
   update(dt,s){
-    if(_twinMode==='ext'){const ext=_extElvState[this.id];if(ext)this._updVis((ext.floor-1)*FH,ext.doorPct||0,dt);return}
+    if(_twinMode==='ext'){const ext=_extElvState[this.id];if(ext){const fl=Number.isFinite(ext.floor)?ext.floor:1,dpp=Number.isFinite(ext.doorPct)?ext.doorPct:0;this._updVis((fl-1)*FH,dpp,dt)}return}
     if(!s)return;this._updVis((s.f-1)*FH,s.dp,dt);
   }
-  destroy(){SC.remove(this.grp)}
+  destroy(){disposeObj(this.grp);SC.remove(this.grp)}
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -542,7 +557,7 @@ function mkPax(from,to){
 }
 function paxTick(p,dt){
   const pos=p.mesh.position;pos.x+=(p._tx-pos.x)*Math.min(1,dt*5);pos.z+=(p._tz-pos.z)*Math.min(1,dt*5);
-  if(p.state==='EXITING'){p._et+=dt;const fade=1-Math.min(1,p._et/1.5);p.mesh.children.forEach(c=>{if(c.material){c.material.opacity=fade;c.material.transparent=true}});if(p._et>1.5){p.state='DONE';SC.remove(p.mesh)}}
+  if(p.state==='EXITING'){p._et+=dt;const fade=1-Math.min(1,p._et/1.5);p.mesh.children.forEach(c=>{if(c.material){c.material.opacity=fade;c.material.transparent=true}});if(p._et>1.5){p.state='DONE';disposeObj(p.mesh);SC.remove(p.mesh)}}
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -551,7 +566,7 @@ function paxTick(p,dt){
 const logBuf=[];const logT0=performance.now();let logFlushIdx=0,logFlushT=0,snapT=0;
 let _log=[];
 function addLog(msg,col){_log.unshift({ts:getTS(),msg,col:col||'rgba(230,237,243,.8)'});if(_log.length>50)_log.pop();const el=G('elogitems');if(!el)return;el.innerHTML=_log.slice(0,14).map(e=>`<div class="eli" style="color:${e.col}"><span style="color:rgba(139,148,158,.5);margin-right:4px">${e.ts}</span>${e.msg}</div>`).join('')}
-function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOString(),_rel:+((performance.now()-logT0)/1000).toFixed(3),t:type,ev},data))}
+function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOString(),_rel:+((performance.now()-logT0)/1000).toFixed(3),t:type,ev},data));if(logBuf.length>20000){const drop=logBuf.length-20000;logBuf.splice(0,drop);logFlushIdx=Math.max(0,logFlushIdx-drop)}}
 async function flushLog(){if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
 function dlLog(){const lines=logBuf.map(e=>JSON.stringify(e)).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=`elv_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.jsonl`;document.body.appendChild(a);a.click();document.body.removeChild(a)}
 window.dlLog=dlLog;
@@ -563,20 +578,21 @@ function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(
 function bldCards(nE){
   const c=G('ecards');if(!c)return;
   const es=t('btnEstop'),er=t('btnResume');
-  c.innerHTML=Array.from({length:nE},(_,i)=>`<div class="ec"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px"><span style="font-size:11px;color:#c9944a;font-weight:500">E${i+1}</span><button id="eeb${i}" onclick="elvEmrg(${i})" style="font-size:10px;padding:1px 6px;border:0.5px solid rgba(248,81,73,.5);background:rgba(248,81,73,.08);color:#f85149;border-radius:3px;cursor:pointer;line-height:1.5">${es}</button></div><div class="ecf" id="ef${i}">1${t('floorF')}</div><div style="font-size:12px" id="es${i}">${t('stIdle')}</div><div class="dbar"><div class="dfill" id="fill${i}" style="width:0%"></div></div><div style="font-size:11px;color:#c9944a" id="eq${i}"></div><div style="font-size:11px;color:rgba(63,185,80,.65)" id="eid${i}"></div></div>`).join('');
+  c.innerHTML=Array.from({length:nE},(_,i)=>`<div class="ec"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px"><span style="font-size:11px;color:#c9944a;font-weight:500">E${i+1}</span><button id="eeb${i}" onclick="elvEmrg(${i})" style="font-size:10px;padding:1px 6px;border:0.5px solid rgba(248,81,73,.5);background:rgba(248,81,73,.08);color:#f85149;border-radius:3px;cursor:pointer;line-height:1.5">${es}</button></div><div class="ecf" id="ef${i}">1${t('floorF')}</div><div style="font-size:12px" id="es${i}">${t('stIdle')}</div><div class="dbar"><div class="dfill" id="fill${i}" style="width:0%"></div></div><div style="font-size:11px;color:rgba(139,148,158,.7)" id="eload${i}"></div><div style="font-size:11px;color:#c9944a" id="eq${i}"></div><div style="font-size:11px;color:rgba(63,185,80,.65)" id="eid${i}"></div></div>`).join('');
 }
 function updCards(all){
   const sm={IDLE:t('stIdle'),UP:t('stUp'),DOWN:t('stDown'),DOPN:t('stDopn'),DOPEN:t('stDopen'),DCLS:t('stDcls'),EMRG:t('stEmrg')};
   const sc={IDLE:'rgba(139,148,158,.8)',UP:'#3fb950',DOWN:'#3fb950',DOPN:'#c9944a',DOPEN:'#c9944a',DCLS:'#c9944a',EMRG:'#f85149'};
   all.forEach(s=>{
     const ext=_twinMode==='ext'?_extElvState[s.id]:null;
-    const ef=G(`ef${s.id}`),es=G(`es${s.id}`),ef2=G(`fill${s.id}`),eq=G(`eq${s.id}`);
+    const ef=G(`ef${s.id}`),es=G(`es${s.id}`),ef2=G(`fill${s.id}`),eq=G(`eq${s.id}`),eld=G(`eload${s.id}`);
     if(ext){
       if(ef)ef.textContent=`${ext.floor}${t('floorF')}`;
-      if(es){const dl=[t('stDown'),t('stIdle'),t('stUp')][ext.dir+1];es.textContent=dl;es.style.color=ext.dir===0?'rgba(139,148,158,.8)':'#3fb950'}
+      if(es){const dl=[t('stDown'),t('stIdle'),t('stUp')][(ext.dir||0)+1];es.textContent=dl;es.style.color=ext.dir===0?'rgba(139,148,158,.8)':'#3fb950'}
       if(ef2)ef2.style.width=`${(ext.doorPct||0)*100}%`;
+      if(eld)eld.textContent='';
     }else{
-      if(ef)ef.textContent=`${s.df}${t('floorF')}`;if(es){es.textContent=sm[s.state]||'—';es.style.color=sc[s.state]||'rgba(139,148,158,.8)'}if(ef2)ef2.style.width=`${(s.dp*100).toFixed(0)}%`;if(eq)eq.textContent=s.stops.length?`→ ${s.stops.sort((a,b)=>a-b).join(' ')}`:''
+      if(ef)ef.textContent=`${s.df}${t('floorF')}`;if(es){es.textContent=sm[s.state]||'—';es.style.color=sc[s.state]||'rgba(139,148,158,.8)'}if(ef2)ef2.style.width=`${(s.dp*100).toFixed(0)}%`;if(eq)eq.textContent=s.stops.length?`→ ${s.stops.sort((a,b)=>a-b).join(' ')}`:'';if(eld){const ld=s.pax||0;eld.textContent=`👥 ${ld}/${CAP}`;eld.style.color=ld>=CAP?'#f85149':ld>=CAP*.7?'#c9944a':'rgba(139,148,158,.7)'}
     }
   });
 }
@@ -648,8 +664,10 @@ function panCamY(d){
 }
 function resetCamY(){const ty=_cy;CAM.position.y+=(ty-controls.target.y);controls.target.set(controls.target.x,ty,controls.target.z);_camYOff=0;controls.update()}
 window.panCamY=panCamY;window.resetCamY=resetCamY;
-function togglePause(){_paused=!_paused;addLog(_paused?(lang==='zh'?'⏸ 已暂停':'⏸ Paused'):(lang==='zh'?'▶ 恢复运行':'▶ Resumed'),_paused?'#f85149':'#3fb950')}
+function togglePause(){_paused=!_paused;const b=G('tp-pause');if(b)b.textContent=_paused?'▶':'⏸';addLog(_paused?(lang==='zh'?'⏸ 已暂停':'⏸ Paused'):(lang==='zh'?'▶ 恢复运行':'▶ Resumed'),_paused?'#f85149':'#3fb950')}
 window.togglePause=togglePause;
+function setSpeed(s,quiet){_timeScale=s;if(_paused&&!quiet)togglePause();document.querySelectorAll('#ypan-ctrl .spd').forEach(b=>{const on=+b.dataset.s===s;b.style.background=on?'rgba(201,148,74,.3)':'rgba(255,255,255,.08)';b.style.color=on?'#e8b86d':'#e6edf3'});if(!quiet)addLog((lang==='zh'?'速度 ':'Speed ')+s+'×','#c9944a')}
+window.setSpeed=setSpeed;
 window.addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowUp'){panCamY(2);e.preventDefault()}if(e.altKey&&e.key==='ArrowDown'){panCamY(-2);e.preventDefault()}if(!e.ctrlKey&&!e.metaKey&&!e.altKey){if(e.code==='KeyP'){togglePause();e.preventDefault()}else if(e.code==='KeyR'){resetCamY();e.preventDefault()}else if(e.code==='KeyO'){if(sys&&agent)runOpt();e.preventDefault()}}});
 
 /* ════════════════════════════════════════════════════════════
@@ -674,7 +692,7 @@ window.resetSpawn=resetSpawn;
    SETUP & OPTIMIZATION
    ════════════════════════════════════════════════════════════ */
 let cfg={floors:10,elevs:3,rate:5};let sys,bG,e3ds,agent;
-let _floorLEDs=[],_paused=false;
+let _floorLEDs=[],_paused=false,_timeScale=1;
 let spT=0,optT=0,wtT=0;
 
 function runOpt(){
@@ -691,8 +709,9 @@ function runOpt(){
 
 function setup(c){
   cfg={...cfg,...c};
-  if(bG)SC.remove(bG);if(e3ds)e3ds.forEach(e=>e.destroy());
-  paxList.forEach(p=>SC.remove(p.mesh));paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
+  if(bG){disposeObj(bG);SC.remove(bG)}if(e3ds)e3ds.forEach(e=>e.destroy());
+  paxList.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
+  logBuf.length=0;logFlushIdx=0;snapT=0;logFlushT=0;
   dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
   sys=new ES(cfg.elevs,cfg.floors);sys.setAlgo(G('ealgo')?.value||'LOOK');
   agent=new ElevatorAgent(cfg.floors,cfg.elevs);
@@ -703,7 +722,8 @@ function setup(c){
   const el=G('agent-status');if(el)el.textContent=t('agentRunSim');
 
   sys.on('arr',({eid,f})=>{addLog(`E${eid+1} → ${f}${t('floorF')}`,'#c9944a');logEv('elev','arr',{eid,f,stops:[...sys.elevs[eid].stops]})});
-  sys.on('dopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} 开门`,'#e8b86d');brdPax(eid,f);logEv('elev','dopen',{eid,f})});
+  sys.on('dopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} ${lang==='zh'?'开门':'door open'}`,'#e8b86d');brdPax(eid,f);logEv('elev','dopen',{eid,f})});
+  sys.on('reopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} ${lang==='zh'?'重开门':'reopen'}`,'#e8b86d');logEv('elev','reopen',{eid,f})});
   sys.on('dcls',({eid})=>{const e=sys.elevs[eid];logEv('elev','dcls',{eid,f:Math.round(e.pos),stops:[...e.stops]})});
   sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);if(agent._dispCnt)agent._dispCnt[eid]=(agent._dispCnt[eid]||0)+1;logEv('elev','call',{fl,dir,eid})});
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
@@ -719,9 +739,12 @@ function setup(c){
 
 /* FIX: Board ANY passenger at floor F, not just eid-matched ones */
 function brdPax(eid,floor){
+  const e=sys.elevs[eid];let passed=0;
   paxList.filter(p=>(p.state==='BOARDING'||p.state==='WAITING')&&p.from===floor).forEach(p=>{
-    if(sys.board(eid,{id:p.id,to:p.to})){p.state='RIDING';const now=performance.now()/1000;p.waitT=now-p.spawn;p.mesh.visible=false;logEv('pax','board',{pid:p.id,eid,f:floor,to:p.to,wait_s:+p.waitT.toFixed(2)})}
+    if(e&&!e.full&&sys.board(eid,{id:p.id,to:p.to})){p.state='RIDING';const now=performance.now()/1000;p.waitT=now-p.spawn;p.mesh.visible=false;logEv('pax','board',{pid:p.id,eid,f:floor,to:p.to,wait_s:+p.waitT.toFixed(2)})}
+    else if(p.state==='BOARDING'){p.state='WAITING';p.eid=null;p._bT=null;passed++}
   });
+  if(passed>0){addLog(`E${eid+1} ${floor}${t('floorF')} ${lang==='zh'?'满员，':'FULL, '}${passed}${lang==='zh'?'人候下批':' left'}`,'#f85149');logEv('elev','passed_by',{eid,f:floor,count:passed})}
 }
 
 G('esfl')?.addEventListener('input',e=>{const v=G('evf');if(v)v.textContent=e.target.value;cfg.floors=+e.target.value});
@@ -740,11 +763,12 @@ let last=performance.now();
 function animate(now){
   requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.05);last=now;controls.update();
   if(!sys){R.render(SC,CAM);return}
-  if(_twinMode==='sim'&&!_paused)sys.update(dt);
+  const sdt=_paused?0:dt*_timeScale;
+  if(_twinMode==='sim'&&sdt>0){let rem=sdt;while(rem>0){const s=Math.min(.02,rem);sys.update(s);rem-=s}}
   const all=sys.getAll();
   e3ds?.forEach((e,i)=>e.update(dt,all[i]));
-  if(!_paused)spT+=dt;
-  if(!_paused&&spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
+  spT+=sdt;
+  if(sdt>0&&spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
     spT=0;const base=Math.random()<.6?1:Math.random()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
     const batch={ts:getTS(),n,calls:[]};
     for(let k=0;k<n;k++){let fr=wRandFloor(),to=wRandFloor();while(to===fr)to=wRandFloor();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
@@ -754,23 +778,25 @@ function animate(now){
   paxList.forEach(p=>{
     if(_twinMode==='sim'&&!_paused&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=_now;p._tx=shX(eid)+(Math.random()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(_now-p.spawn).toFixed(2)})}}
     if(p.state==='BOARDING'&&p._bT&&_now-p._bT>90){p.state='WAITING';p.eid=null;p._bT=null}
-    paxTick(p,dt);
+    paxTick(p,sdt);
   });
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
-  if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);rm.forEach(p=>SC.remove(p.mesh));paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
-  optT+=dt;if(optT>=30){optT=0;setTimeout(runOpt,0)}
+  if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
+  optT+=sdt;if(optT>=30){optT=0;setTimeout(runOpt,0)}
   wtT+=dt;if(wtT>=.5){wtT=0;updWaiting()}
-  snapT+=dt;if(snapT>=5){snapT=0;logSnap()}
+  snapT+=sdt;if(snapT>=5){snapT=0;logSnap()}
   logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
   if(_floorLEDs.length){const wbf=new Array(cfg.floors).fill(0);paxList.forEach(p=>{if(p.state==='WAITING'||p.state==='BOARDING')wbf[p.from-1]=(wbf[p.from-1]||0)+1});_floorLEDs.forEach((led,f)=>{if(led?.material)led.material.emissiveIntensity=Math.min(1.2,(wbf[f]||0)*.4)})}
   updCards(all);updStats();R.render(SC,CAM);
 }
 
-let _rzT;window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(innerWidth,h);CAM.aspect=innerWidth/h;CAM.updateProjectionMatrix();clearTimeout(_rzT);_rzT=setTimeout(()=>{if(cfg?.elevs)layoutPanels(cfg.elevs)},350)});
+function clampPanels(){document.querySelectorAll('.fp[id]').forEach(p=>{const r=p.getBoundingClientRect();const maxX=Math.max(0,innerWidth-r.width),maxY=Math.max(44,innerHeight-40);let x=Math.min(Math.max(0,r.left),maxX),y=Math.min(Math.max(44,r.top),maxY);p.style.left=x+'px';p.style.top=y+'px';p.style.right='auto';p.style.bottom='auto'});savePS()}
+let _rzT;window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(innerWidth,h);CAM.aspect=innerWidth/h;CAM.updateProjectionMatrix();clearTimeout(_rzT);_rzT=setTimeout(clampPanels,350)});
 
 // Init
 applyLang();
 setup(cfg);
+setSpeed(1,true);
 requestAnimationFrame(animate);
 </script>
 </body>
