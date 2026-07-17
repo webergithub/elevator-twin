@@ -641,7 +641,7 @@ function updWaiting(){
     el.innerHTML=Object.keys(byF).map(Number).sort((a,b)=>a-b).map(f=>{
       const ws=byF[f];
       const dots=ws.map(w=>{const c=w>60?'#f85149':w>30?'#c9944a':'#58a6ff';return`<span style="color:${c};background:rgba(255,255,255,.05);border-radius:3px;padding:0 4px;margin-right:2px;font-size:11px">${w.toFixed(0)}s</span>`}).join('');
-      return`<div style="padding:2px 0;border-bottom:0.5px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:5px"><span style="color:#c9944a;font-weight:500;min-width:24px;font-size:12px">${f}${t('floorF')}</span><span style="color:rgba(139,148,158,.6);font-size:10px">${ws.length}人</span><div style="flex:1">${dots}</div></div>`;
+      return`<div style="padding:2px 0;border-bottom:0.5px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:5px"><span style="color:#c9944a;font-weight:500;min-width:24px;font-size:12px">${f}${t('floorF')}</span><span style="color:rgba(139,148,158,.6);font-size:10px">${ws.length}${lang==='zh'?'人':' pax'}</span><div style="flex:1">${dots}</div></div>`;
     }).join('');
   }
 }
@@ -843,7 +843,7 @@ let _rzT;window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(
 
 // Init
 applyLang();
-setup(cfg);
+setup(cfg,true);
 setSpeed(1,true);
 requestAnimationFrame(animate);
 </script>
