@@ -88,10 +88,19 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <option value="NEAREST" data-zh="最近轿厢" data-en="Nearest Car">最近轿厢</option>
       <option value="DCS" data-zh="目标控制 DCS" data-en="Destination DCS">目标控制 DCS</option>
     </select>
+    <label data-zh="客流模式" data-en="Traffic Pattern">客流模式</label>
+    <select id="etraffic">
+      <option value="auto" data-zh="自动（按时钟）" data-en="Auto (by clock)">自动（按时钟）</option>
+      <option value="up" data-zh="上行高峰（进楼）" data-en="Up-Peak (lobby in)">上行高峰（进楼）</option>
+      <option value="down" data-zh="下行高峰（离楼）" data-en="Down-Peak (lobby out)">下行高峰（离楼）</option>
+      <option value="lunch" data-zh="午餐双向" data-en="Lunch Two-Way">午餐双向</option>
+      <option value="inter" data-zh="层间均匀" data-en="Interfloor Uniform">层间均匀</option>
+    </select>
     <button class="fpa" id="ebap" style="background:#c9944a;color:#0d0a07" data-zh="应用配置" data-en="Apply Config">应用配置</button>
     <button class="fpa" id="ebem" style="background:#f85149;color:#fff" data-zh="全体紧急停梯" data-en="Emergency Stop All">全体紧急停梯</button>
     <button class="fpa" id="ebcl" style="background:rgba(255,255,255,.08);color:#e6edf3;border:0.5px solid rgba(255,255,255,.18)" data-zh="清除 / 恢复" data-en="Clear / Resume">清除 / 恢复</button>
     <button class="fpa" onclick="dispatchAll()" style="background:rgba(201,148,74,.12);color:#c9944a;border:0.5px solid rgba(201,148,74,.35)" data-zh="⚡ 一键调度" data-en="⚡ Dispatch All">⚡ 一键调度</button>
+    <button class="fpa" onclick="resetLayout()" style="background:rgba(255,255,255,.05);color:rgba(139,148,158,.9);border:0.5px solid rgba(255,255,255,.15)" data-zh="🧭 重置窗口布局" data-en="🧭 Reset Layout">🧭 重置窗口布局</button>
     <hr class="hr">
     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;padding:2px 0" onclick="toggleDynParams()">
       <span id="dyn-title" style="font-size:13px;font-weight:500;color:#c9944a" data-zh="动态参数" data-en="Dynamic Params">动态参数</span>
@@ -110,7 +119,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
 <div class="fp" id="p-opt" style="top:444px;left:12px;width:242px">
   <div class="fp-hdr" id="h-opt"><span class="fp-ttl" style="color:#3fb950" data-zh="🧠 智能优化器" data-en="🧠 Smart Optimizer">🧠 智能优化器</span><button class="fp-min" onclick="fmin(this)">—</button></div>
   <div class="fp-bd">
-    <div style="font-size:12px;color:rgba(139,148,158,.8);margin-bottom:3px"><span data-zh="时段:" data-en="Period:">时段:</span> <span id="eperiod" style="color:#e6edf3">—</span></div>
+    <div style="font-size:12px;color:rgba(139,148,158,.8);margin-bottom:3px"><span data-zh="时段:" data-en="Period:">时段:</span> <span id="eperiod" style="color:#e6edf3">—</span> <span id="etmode" style="color:#e8b86d;font-size:11px"></span></div>
     <div style="font-size:12px;color:rgba(139,148,158,.7);margin-bottom:3px" data-zh="需求热图" data-en="Demand Map">需求热图</div>
     <div id="edemand" style="display:flex;gap:1px;align-items:flex-end;height:32px;margin-bottom:5px;padding:2px;background:rgba(255,255,255,.04);border-radius:4px"></div>
     <div style="font-size:12px;color:rgba(139,148,158,.8)" data-zh="建议待机楼层" data-en="Suggested Standby Floors">建议待机楼层</div>
@@ -147,6 +156,11 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="均等待" data-en="Avg Wait">均等待</span> <b id="esaw" style="color:#c9944a">0s</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="算法" data-en="Algo">算法</span> <b id="ealgo2" style="color:#e8b86d">LOOK</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="行程" data-en="Travel">行程</span> <b id="estrvl" style="color:#58a6ff">0m</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="P50/P95等待" data-en="P50/P95 Wait">P50/P95等待</span> <b id="esp5" style="color:#c9944a">—</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="吞吐" data-en="Thruput">吞吐</span> <b id="estp" style="color:#3fb950">0/min</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="全程" data-en="Journey">全程</span> <b id="esjr" style="color:#c9944a">0s</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="利用率" data-en="Util">利用率</span> <b id="esut" style="color:#58a6ff">0%</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="能耗指数" data-en="Energy">能耗指数</span> <b id="esen" style="color:#e8b86d">0</b></span>
     </div>
   </div>
 </div>
@@ -322,7 +336,6 @@ function _expand(id){
   if(bd){bd.classList.remove('mz');if(hdr)hdr.classList.remove('mz');if(btn)btn.textContent='—'}
 }
 function layoutPanels(nE){
-  localStorage.removeItem(LS_KEY);
   const M=10,GAP=10,NAV=44;
   const W=Math.max(innerWidth,900),H=Math.max(innerHeight,640);
   const TOP=NAV+M, AVAIL=H-TOP-M;
@@ -345,7 +358,7 @@ function layoutPanels(nE){
   _expand('p-twin');_setPos('p-twin',C2X,TOP+OPT_H+GAP+LOG_H+GAP,C2W,TWIN_H);
 
   /* Col 3 — p-stat (compact) / p-elv */
-  const STAT_H=98, ELV_H=Math.min(38+nE*132,Math.max(180,AVAIL-STAT_H-GAP));
+  const STAT_H=150, ELV_H=Math.min(38+nE*132,Math.max(180,AVAIL-STAT_H-GAP));
   _setPos('p-stat',C3X,TOP,C3W,STAT_H);
   _setPos('p-elv',C3X,TOP+STAT_H+GAP,C3W,ELV_H);
 
@@ -354,6 +367,7 @@ function layoutPanels(nE){
   const FEED_H=Math.max(160,AVAIL-WAIT_H-GAP);
   _setPos('p-wait',C4X,TOP,C4W,WAIT_H);
   _expand('p-feed');_setPos('p-feed',C4X,TOP+WAIT_H+GAP,C4W,FEED_H);
+  savePS();
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -362,6 +376,7 @@ function layoutPanels(nE){
 const FH=4,SW=2.8,SD=2.6,SG=0.6,CW=SW-.24,CD=SD-.18,CH=FH*.82;
 const DW=CW/2-.04,DH=CH-.24,DT=.06,UP=1,NONE=0,DOWN=-1;
 const SPD=2.5,ACC=1.8,DHOLD=3.0,DANIM=0.8,ARR=0.03,CAP=10;
+const DOPEN_MIN=1.6,TPP=0.75,DHOLD_MAX=6.0; /* load-dependent door dwell: base + per-passenger transfer time */
 const shX=i=>i*(SW+SG),bW=n=>n*SW+(n-1)*SG;
 function getTS(){const t=new Date();return`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`}
 function fmtS(s){if(s<60)return s.toFixed(0)+'s';const m=Math.floor(s/60),r=Math.round(s%60);return r?`${m}m${r}s`:`${m}m`}
@@ -371,22 +386,23 @@ function G(id){return document.getElementById(id)}
    LAYER 1 — CORE ELEVATOR PHYSICS
    ════════════════════════════════════════════════════════════ */
 class EU{
-  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={};this.dist=0;this.cap=CAP}
+  constructor(id,nF){this.id=id;this.nF=nF;this.pos=1;this.vel=0;this.dir=NONE;this.dp=0;this._ds='closed';this._dt=0;this.stops=new Set();this.state='IDLE';this.oos=false;this.pax=[];this._L={};this.dist=0;this.cap=CAP;this._hold=DHOLD;this.starts=0;this.busy=0;this.life=0}
   get full(){return this.pax.length>=this.cap}
   on(e,f){(this._L[e]??=[]).push(f);return this}
   _emit(e,d){(this._L[e]??[]).forEach(f=>f(d))}
   addStop(f){
     if(f>=1&&f<=this.nF){
-      if(this.state==='DCLS'&&Math.abs(this.pos-f)<ARR+.12){this._ds='opening';this._dt=(1-this.dp)*DANIM;this.state='DOPN';this._emit('reopen',{eid:this.id,f:Math.round(this.pos)})}
+      if(this.state==='DCLS'&&Math.abs(this.pos-f)<ARR+.12){this._ds='opening';this._dt=(1-this.dp)*DANIM;this.state='DOPN';this._hold=DOPEN_MIN;this._emit('reopen',{eid:this.id,f:Math.round(this.pos)})}
       else if(this.state==='IDLE'&&this._ds==='closed'&&Math.abs(this.pos-f)<ARR+.12){this._arr(f)}
       else if((this.state==='DOPN'||this.state==='DOPEN')&&Math.abs(this.pos-f)<ARR+.12){}
       else{this.stops.add(f);if(this.state==='IDLE')this._pick()}
     }
   }
-  board(p){this.pax.push(p);this.addStop(p.to)}
+  board(p){this.pax.push(p);this._hold=Math.min(DHOLD_MAX,(this._hold||DHOLD)+TPP);this.addStop(p.to)}
   _pick(){if(!this.stops.size)return;const at=[...this.stops].find(f=>Math.abs(f-this.pos)<ARR+.12);if(at!=null&&this._ds==='closed'){this._arr(at);return}const n=[...this.stops].reduce((a,b)=>Math.abs(a-this.pos)<Math.abs(b-this.pos)?a:b);this.dir=n>this.pos?UP:n<this.pos?DOWN:NONE;this.state=this.dir===UP?'UP':this.dir===DOWN?'DOWN':'IDLE'}
   _next(){const s=[...this.stops];if(!s.length)return null;if(this.dir===UP){const a=s.filter(f=>f>this.pos+ARR);return a.length?Math.min(...a):Math.max(...s)}if(this.dir===DOWN){const a=s.filter(f=>f<this.pos-ARR);return a.length?Math.max(...a):Math.min(...s)}return s.reduce((a,b)=>Math.abs(a-this.pos)<Math.abs(b-this.pos)?a:b)}
   update(dt){
+    this.life+=dt;if(this.state!=='IDLE'&&this.state!=='EMRG')this.busy+=dt;
     if(this.oos||this.state==='EMRG')return;this._dU(dt);if(this._ds!=='closed')return;
     if(this.state==='IDLE'){if(this.stops.size)this._pick();return}
     if(['DOPN','DOPEN','DCLS'].includes(this.state))return;
@@ -395,13 +411,14 @@ class EU{
     if(d!==this.dir){this.dir=d;this.state=d===1?'UP':'DOWN'}
     const br=this.vel*this.vel/(2*ACC);
     const nv=ad<=br+.01?(()=>{const v=this.vel-ACC*dt*d;return Math.abs(v)<.05?0:v})():Math.max(-SPD,Math.min(SPD,this.vel+ACC*dt*d));
+    if(this.vel===0&&nv!==0)this.starts++;
     this.vel=nv;this.pos+=nv*dt;this.dist+=Math.abs(nv*dt);if(Math.abs(this.pos-tgt)<ARR){this.pos=tgt;this.vel=0;this._arr(tgt)}
   }
-  _arr(f){this.stops.delete(f);this.state='DOPN';this._ds='opening';this._dt=0;const out=this.pax.filter(p=>p.to===f);out.forEach(p=>this._emit('exit',{eid:this.id,f,p}));this.pax=this.pax.filter(p=>p.to!==f);this._emit('arr',{eid:this.id,f})}
+  _arr(f){this.stops.delete(f);this.state='DOPN';this._ds='opening';this._dt=0;const out=this.pax.filter(p=>p.to===f);this._hold=Math.min(DHOLD_MAX,DOPEN_MIN+out.length*TPP);out.forEach(p=>this._emit('exit',{eid:this.id,f,p}));this.pax=this.pax.filter(p=>p.to!==f);this._emit('arr',{eid:this.id,f})}
   _dU(dt){
     this._dt+=dt;
     if(this._ds==='opening'){this.dp=Math.min(1,this._dt/DANIM);if(this.dp>=1){this._ds='open';this._dt=0;this.state='DOPEN';this._emit('dopen',{eid:this.id,f:Math.round(this.pos)})}}
-    else if(this._ds==='open'){if(this._dt>=DHOLD){this._ds='closing';this._dt=0;this.state='DCLS'}}
+    else if(this._ds==='open'){if(this._dt>=(this._hold||DHOLD)){this._ds='closing';this._dt=0;this.state='DCLS'}}
     else if(this._ds==='closing'){this.dp=Math.max(0,1-this._dt/DANIM);if(this.dp<=0){this._ds='closed';this._dt=0;this.state='IDLE';this._emit('dcls',{eid:this.id})}}
   }
   emrg(){this.vel=0;this.state='EMRG';this.oos=true}
@@ -544,6 +561,8 @@ class E3D{
    ════════════════════════════════════════════════════════════ */
 const PCL=[0xc9944a,0xff6644,0x44dd88,0x58a6ff,0xcc44ff,0xff4488,0x22ccff,0xe8b86d];
 let _pid=0;const paxList=[];let svcCnt=0,waitSum=0;
+const servedWaits=[],servedJourneys=[],servedTimes=[]; /* KPI sample buffers, capped at 600 */
+function pctl(a,p){if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))]}
 
 function mkPax(from,to){
   const g=new THREE.Group(),col=PCL[_pid%PCL.length];
@@ -568,7 +587,7 @@ const logBuf=[];const logT0=performance.now();let logFlushIdx=0,logFlushT=0,snap
 let _log=[];
 function addLog(msg,col){_log.unshift({ts:getTS(),msg,col:col||'rgba(230,237,243,.8)'});if(_log.length>50)_log.pop();const el=G('elogitems');if(!el)return;el.innerHTML=_log.slice(0,14).map(e=>`<div class="eli" style="color:${e.col}"><span style="color:rgba(139,148,158,.5);margin-right:4px">${e.ts}</span>${e.msg}</div>`).join('')}
 function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOString(),_rel:+((performance.now()-logT0)/1000).toFixed(3),t:type,ev},data));if(logBuf.length>20000){const drop=logBuf.length-20000;logBuf.splice(0,drop);logFlushIdx=Math.max(0,logFlushIdx-drop)}}
-async function flushLog(){if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
+async function flushLog(){if(location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'&&!window.__ELV_LOG_SINK){logFlushIdx=logBuf.length;return}if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
 function dlLog(){const lines=logBuf.map(e=>JSON.stringify(e)).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=`elv_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.jsonl`;document.body.appendChild(a);a.click();document.body.removeChild(a)}
 window.dlLog=dlLog;
 function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))})}
@@ -601,6 +620,13 @@ function updStats(){
   const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length,aw=svcCnt?(waitSum/svcCnt).toFixed(1):'0';
   [['eswt',w],['esrd',r],['essv',svcCnt],['esaw',`${aw}s`]].forEach(([id,v])=>{const e=G(id);if(e)e.textContent=v});
   const td=G('estrvl');if(td&&sys){const tot=sys.elevs.reduce((s,e)=>s+e.dist,0);td.textContent=`${(tot*FH).toFixed(0)}m`}
+  if(!sys)return;
+  const nw=performance.now()/1000;
+  const ep5=G('esp5');if(ep5)ep5.textContent=servedWaits.length?`${pctl(servedWaits,.5).toFixed(0)}/${pctl(servedWaits,.95).toFixed(0)}s`:'—';
+  const etp=G('estp');if(etp)etp.textContent=`${servedTimes.filter(t=>nw-t<=60).length}/min`;
+  const ejr=G('esjr');if(ejr)ejr.textContent=servedJourneys.length?`${(servedJourneys.reduce((a,b)=>a+b,0)/servedJourneys.length).toFixed(0)}s`:'0s';
+  const eut=G('esut');if(eut){const u=sys.elevs.reduce((s,e)=>s+(e.life?e.busy/e.life:0),0)/sys.elevs.length*100;eut.textContent=`${u.toFixed(0)}%`;eut.style.color=u>85?'#f85149':u>60?'#c9944a':'#58a6ff'}
+  const een=G('esen');if(een)een.textContent=`${sys.elevs.reduce((s,e)=>s+e.dist*FH+e.starts*8,0).toFixed(0)}`;
 }
 function updWaiting(){
   const now=performance.now()/1000;
@@ -677,6 +703,25 @@ window.addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowUp'){panCamY(2)
 let floorMult=[],globalMult=1;
 window.setFlM=(i,v)=>{if(i<floorMult.length)floorMult[i]=+v;const l=G('fm'+i);if(l)l.textContent=(+v)+'x'};
 function wRandFloor(){if(!floorMult.length)return Math.floor(Math.random()*cfg.floors)+1;const total=floorMult.reduce((a,b)=>a+b,0);if(!total)return Math.floor(Math.random()*cfg.floors)+1;let r=Math.random()*total;for(let i=0;i<floorMult.length;i++){r-=floorMult[i];if(r<=0)return i+1}return cfg.floors}
+/* ── Traffic-pattern OD generation ── */
+const TMODE_N={up:{zh:'上行高峰',en:'Up-Peak'},down:{zh:'下行高峰',en:'Down-Peak'},lunch:{zh:'午餐双向',en:'Lunch'},inter:{zh:'层间均匀',en:'Interfloor'}};
+function trafficMode(){
+  let m=cfg.traffic||'auto';
+  if(m==='auto'){const h=new Date().getHours();m=(h>=7&&h<=9)?'up':(h>=17&&h<=19)?'down':(h>=12&&h<=13)?'lunch':'inter'}
+  return m;
+}
+function genOD(){
+  const m=trafficMode(),nF=cfg.floors;
+  const upper=()=>Math.max(2,wRandFloor());
+  let fr,to;
+  if(m==='up'){fr=Math.random()<.85?1:wRandFloor();to=upper()}
+  else if(m==='down'){to=Math.random()<.85?1:wRandFloor();fr=upper()}
+  else if(m==='lunch'){const mid=Math.max(2,Math.ceil(nF/2));if(Math.random()<.5){fr=Math.random()<.5?1:mid;to=wRandFloor()}else{fr=wRandFloor();to=Math.random()<.5?1:mid}}
+  else{fr=wRandFloor();to=wRandFloor()}
+  let tries=0;while(to===fr&&tries++<16)to=wRandFloor();
+  if(to===fr)to=fr%nF+1; /* deterministic fallback — prevents infinite loop when one weight dominates */
+  return{fr,to};
+}
 function initFloorParams(){floorMult=Array.from({length:cfg.floors},()=>1.0);globalMult=1;const c=G('floorparams');if(!c)return;c.innerHTML=Array.from({length:cfg.floors},(_,i)=>`<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span style="font-size:10px;color:rgba(139,148,158,.7);min-width:22px">${i+1}${t('floorF')}</span><input type="range" min="0" max="5" step="0.5" value="1" style="flex:1;accent-color:#c9944a" oninput="setFlM(${i},this.value)"><span id="fm${i}" style="font-size:10px;color:#c9944a;min-width:24px">1x</span></div>`).join('')}
 function elvEmrg(i){const e=sys?.elevs?.[i];if(!e)return;if(e.oos){e.clear();addLog(`E${i+1} ${t('btnResume')}`,'#3fb950')}else{e.emrg();addLog(`E${i+1} ${t('btnEstop')}`,'#f85149')}const btn=G(`eeb${i}`);if(btn){btn.textContent=e.oos?t('btnResume'):t('btnEstop');btn.style.color=e.oos?'#3fb950':'#f85149';btn.style.borderColor=e.oos?'rgba(63,185,80,.5)':'rgba(248,81,73,.5)';btn.style.background=e.oos?'rgba(63,185,80,.08)':'rgba(248,81,73,.08)'}}
 window.elvEmrg=elvEmrg;
@@ -692,7 +737,7 @@ window.resetSpawn=resetSpawn;
 /* ════════════════════════════════════════════════════════════
    SETUP & OPTIMIZATION
    ════════════════════════════════════════════════════════════ */
-let cfg={floors:10,elevs:3,rate:5};let sys,bG,e3ds,agent;
+let cfg={floors:10,elevs:3,rate:5,traffic:'auto'};let sys,bG,e3ds,agent;
 let _floorLEDs=[],_paused=false,_timeScale=1;
 let spT=0,optT=0,wtT=0;
 
@@ -708,7 +753,7 @@ function runOpt(){
   logEv('opt','run',{h:new Date().getHours(),period:r.period,positions:r.result.pos,cost:+r.result.cost,press:agent.getPressCounts()});
 }
 
-function setup(c){
+function setup(c,isInit){
   cfg={...cfg,...c};
   if(bG){disposeObj(bG);SC.remove(bG)}if(e3ds)e3ds.forEach(e=>e.destroy());
   paxList.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
@@ -728,12 +773,12 @@ function setup(c){
   sys.on('dcls',({eid})=>{const e=sys.elevs[eid];logEv('elev','dcls',{eid,f:Math.round(e.pos),stops:[...e.stops]})});
   sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);if(agent._dispCnt)agent._dispCnt[eid]=(agent._dispCnt[eid]||0)+1;logEv('elev','call',{fl,dir,eid})});
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
-  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(Math.random()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+Math.random()*.8);px._tx=px.mesh.position.x+(Math.random()-.5)*1.5;px._tz=px.mesh.position.z+Math.random()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
+  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(Math.random()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+Math.random()*.8);px._tx=px.mesh.position.x+(Math.random()-.5)*1.5;px._tz=px.mesh.position.z+Math.random()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;const nw=performance.now()/1000;servedWaits.push(px.waitT);servedJourneys.push(nw-px.spawn);servedTimes.push(nw);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
 
   logEv('sys','start',{floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,algo:sys.algo});
   const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
   {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
-  layoutPanels(cfg.elevs);
+  if(isInit&&localStorage.getItem(LS_KEY)){restorePS();clampPanels()}else{layoutPanels(cfg.elevs)}
   runOpt();addLog(t('logStart'),'#3fb950');
   setTimeout(()=>{if(sys&&cfg.floors>=4){sys.call(1,UP);sys.call(Math.ceil(cfg.floors/2),UP);if(cfg.floors>5)sys.call(cfg.floors,DOWN)}},600);
 }
@@ -752,7 +797,9 @@ G('esfl')?.addEventListener('input',e=>{const v=G('evf');if(v)v.textContent=e.ta
 G('esel')?.addEventListener('input',e=>{const v=G('eve');if(v)v.textContent=e.target.value;cfg.elevs=+e.target.value});
 G('essl')?.addEventListener('input',e=>{const v=G('evs');if(v)v.textContent=e.target.value;cfg.rate=+e.target.value});
 G('ealgo')?.addEventListener('change',e=>{sys?.setAlgo(e.target.value);const ab=G('ealgo2');if(ab)ab.textContent=e.target.value;addLog(`${t('logAlgo')}${e.target.value}`,'#e8b86d')});
+G('etraffic')?.addEventListener('change',e=>{cfg.traffic=e.target.value;const o=e.target.options[e.target.selectedIndex];addLog((lang==='zh'?'客流模式→':'Traffic→')+(lang==='zh'?o.dataset.zh:o.dataset.en),'#e8b86d');logEv('sys','traffic',{mode:e.target.value})});
 G('ebap')?.addEventListener('click',()=>setup(cfg));
+window.resetLayout=()=>{layoutPanels(cfg.elevs);addLog(lang==='zh'?'布局已重置':'Layout reset','#3fb950')};
 G('ebem')?.addEventListener('click',()=>{sys?.emrg();addLog(t('logEmrg'),'#f85149')});
 G('ebcl')?.addEventListener('click',()=>{sys?.clear();addLog(t('logClear'),'#3fb950')});
 G('ebon')?.addEventListener('click',()=>runOpt());
@@ -772,7 +819,7 @@ function animate(now){
   if(sdt>0&&spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
     spT=0;const base=Math.random()<.6?1:Math.random()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
     const batch={ts:getTS(),n,calls:[]};
-    for(let k=0;k<n;k++){let fr=wRandFloor(),to=wRandFloor();while(to===fr)to=wRandFloor();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
+    for(let k=0;k<n;k++){const{fr,to}=genOD();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
     dataFeed.unshift(batch);if(dataFeed.length>80)dataFeed.pop();updFeed();
   }
   const _now=performance.now()/1000;
@@ -784,7 +831,7 @@ function animate(now){
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
   if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
   optT+=sdt;if(optT>=30){optT=0;setTimeout(runOpt,0)}
-  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting()}
+  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
   snapT+=sdt;if(snapT>=5){snapT=0;logSnap()}
   logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
   if(_floorLEDs.length){const wbf=new Array(cfg.floors).fill(0);paxList.forEach(p=>{if(p.state==='WAITING'||p.state==='BOARDING')wbf[p.from-1]=(wbf[p.from-1]||0)+1});_floorLEDs.forEach((led,f)=>{if(led?.material)led.material.emissiveIntensity=Math.min(1.2,(wbf[f]||0)*.4)})}
