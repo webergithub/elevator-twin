@@ -54,8 +54,12 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
 <div id="nav-bar">
   <a id="nav-back" href="/">← 返回主页</a>
   <span id="nav-title">电梯数字孪生</span>
+  <span id="app-ver" style="font-size:10px;color:rgba(139,148,158,.55);margin-right:8px"></span>
   <button id="lang-btn" onclick="toggleLang()">EN</button>
 </div>
+
+<!-- Integrity banner (health self-check, hidden unless conservation fails) -->
+<div id="ib" style="display:none;position:fixed;top:44px;left:0;right:0;z-index:400;background:rgba(248,81,73,.95);color:#fff;font-size:12px;font-weight:600;text-align:center;padding:5px 12px"></div>
 
 <div id="cc"></div>
 
@@ -161,6 +165,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="全程" data-en="Journey">全程</span> <b id="esjr" style="color:#c9944a">0s</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="利用率" data-en="Util">利用率</span> <b id="esut" style="color:#58a6ff">0%</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="能耗指数" data-en="Energy">能耗指数</span> <b id="esen" style="color:#e8b86d">0</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="丢弃" data-en="Dropped">丢弃</span> <b id="esdp" style="color:rgba(139,148,158,.7)">0</b></span>
     </div>
   </div>
 </div>
@@ -240,6 +245,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
+const APP_VERSION='0.9.0';
+{const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
 
@@ -306,7 +313,7 @@ window.toggleLang = toggleLang;
 let zTop=100;
 const LS_KEY='elv-twin-panels-v2';
 let _userMoved=false;
-function savePS(){const st={};document.querySelectorAll('.fp[id]').forEach(p=>{const bd=p.querySelector('.fp-bd');st[p.id]={l:p.style.left,t:p.style.top,r:p.style.right,b:p.style.bottom,w:p.style.width,h:p.style.height,mz:bd?bd.classList.contains('mz'):false}});try{localStorage.setItem(LS_KEY,JSON.stringify(st))}catch(e){}}
+function savePS(){const st={};document.querySelectorAll('.fp[id]').forEach(p=>{const bd=p.querySelector('.fp-bd');st[p.id]={l:p.style.left,t:p.style.top,r:p.style.right,b:p.style.bottom,w:p.style.width,h:p.style.height,mz:bd?bd.classList.contains('mz'):false}});try{localStorage.setItem(LS_KEY,JSON.stringify(st))}catch(e){if(!window.__lsWarned){window.__lsWarned=true;try{addLog(lang==='zh'?'⚠ 本地存储不可用，布局将不被保存':'⚠ Storage unavailable, layout will not persist','#f85149')}catch(_){}}}}
 function restorePS(){let st;try{st=JSON.parse(localStorage.getItem(LS_KEY)||'{}')}catch(e){st={}}document.querySelectorAll('.fp[id]').forEach(p=>{const d=st[p.id];if(!d)return;if(d.l){p.style.left=d.l;p.style.right='auto'}else if(d.r){p.style.right=d.r;p.style.left='auto'}if(d.t){p.style.top=d.t;p.style.bottom='auto'}else if(d.b){p.style.bottom=d.b;p.style.top='auto'}if(d.w)p.style.width=d.w;if(d.h)p.style.height=d.h;if(d.mz){const bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr'),btn=p.querySelector('.fp-min');if(bd)bd.classList.add('mz');if(hdr)hdr.classList.add('mz');if(btn)btn.textContent='+'}})}
 function fmin(btn){const p=btn.closest('.fp'),bd=p.querySelector('.fp-bd'),hdr=p.querySelector('.fp-hdr');const mz=bd.classList.toggle('mz');hdr.classList.toggle('mz',mz);btn.textContent=mz?'+':'—';savePS()}
 window.fmin=fmin;
@@ -561,6 +568,7 @@ class E3D{
    ════════════════════════════════════════════════════════════ */
 const PCL=[0xc9944a,0xff6644,0x44dd88,0x58a6ff,0xcc44ff,0xff4488,0x22ccff,0xe8b86d];
 let _pid=0;const paxList=[];let svcCnt=0,waitSum=0;
+let droppedCnt=0,_pidBase=0; /* health self-check: cull counter + per-session spawn baseline */
 const servedWaits=[],servedJourneys=[],servedTimes=[]; /* KPI sample buffers, capped at 600 */
 function pctl(a,p){if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))]}
 
@@ -590,7 +598,15 @@ function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOStri
 async function flushLog(){if(location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'&&!window.__ELV_LOG_SINK){logFlushIdx=logBuf.length;return}if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
 function dlLog(){const lines=logBuf.map(e=>JSON.stringify(e)).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=`elv_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.jsonl`;document.body.appendChild(a);a.click();document.body.removeChild(a)}
 window.dlLog=dlLog;
-function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))})}
+function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,dropped:droppedCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))});integrityCheck(w+r)}
+/* Health self-check: spawned must equal alive + served + dropped (passenger conservation) */
+function integrityCheck(alive){
+  const spawned=_pid-_pidBase,expect=alive+svcCnt+droppedCnt,ib=G('ib');
+  if(spawned!==expect){
+    if(ib){ib.style.display='block';ib.textContent=(lang==='zh'?'⚠ 数据完整性校验失败：乘客守恒不成立 ':'⚠ Integrity check failed: passenger conservation broken ')+`(spawned=${spawned} alive=${alive} served=${svcCnt} dropped=${droppedCnt})`}
+    logEv('sys','integrity_fail',{spawned,alive,served:svcCnt,dropped:droppedCnt});
+  }else if(ib&&ib.style.display!=='none'){ib.style.display='none'}
+}
 
 /* ════════════════════════════════════════════════════════════
    UI FUNCTIONS
@@ -627,6 +643,7 @@ function updStats(){
   const ejr=G('esjr');if(ejr)ejr.textContent=servedJourneys.length?`${(servedJourneys.reduce((a,b)=>a+b,0)/servedJourneys.length).toFixed(0)}s`:'0s';
   const eut=G('esut');if(eut){const u=sys.elevs.reduce((s,e)=>s+(e.life?e.busy/e.life:0),0)/sys.elevs.length*100;eut.textContent=`${u.toFixed(0)}%`;eut.style.color=u>85?'#f85149':u>60?'#c9944a':'#58a6ff'}
   const een=G('esen');if(een)een.textContent=`${sys.elevs.reduce((s,e)=>s+e.dist*FH+e.starts*8,0).toFixed(0)}`;
+  const edp=G('esdp');if(edp){edp.textContent=droppedCnt;edp.style.color=droppedCnt>0?'#f85149':'rgba(139,148,158,.7)'}
 }
 function updWaiting(){
   const now=performance.now()/1000;
@@ -757,6 +774,7 @@ function setup(c,isInit){
   cfg={...cfg,...c};
   if(bG){disposeObj(bG);SC.remove(bG)}if(e3ds)e3ds.forEach(e=>e.destroy());
   paxList.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
+  droppedCnt=0;_pidBase=_pid;const ib=G('ib');if(ib)ib.style.display='none';
   logBuf.length=0;logFlushIdx=0;snapT=0;logFlushT=0;
   dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
   sys=new ES(cfg.elevs,cfg.floors);sys.setAlgo(G('ealgo')?.value||'LOOK');
@@ -775,7 +793,7 @@ function setup(c,isInit){
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
   sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(Math.random()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+Math.random()*.8);px._tx=px.mesh.position.x+(Math.random()-.5)*1.5;px._tz=px.mesh.position.z+Math.random()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;const nw=performance.now()/1000;servedWaits.push(px.waitT);servedJourneys.push(nw-px.spawn);servedTimes.push(nw);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
 
-  logEv('sys','start',{floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,algo:sys.algo});
+  logEv('sys','start',{ver:APP_VERSION,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,traffic:cfg.traffic,algo:sys.algo});
   const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
   {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
   if(isInit&&localStorage.getItem(LS_KEY)){restorePS();clampPanels()}else{layoutPanels(cfg.elevs)}
@@ -829,7 +847,7 @@ function animate(now){
     paxTick(p,sdt);
   });
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
-  if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
+  if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);if(rm.length){droppedCnt+=rm.length;logEv('pax','dropped',{count:rm.length,total:droppedCnt});addLog(`${lang==='zh'?'⚠ 超限丢弃':'⚠ Dropped'} ${rm.length}${lang==='zh'?' 人':' pax'}`,'#f85149')}rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
   optT+=sdt;if(optT>=30){optT=0;setTimeout(runOpt,0)}
   wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
   snapT+=sdt;if(snapT>=5){snapT=0;logSnap()}
@@ -840,6 +858,16 @@ function animate(now){
 
 function clampPanels(){document.querySelectorAll('.fp[id]').forEach(p=>{const r=p.getBoundingClientRect();const maxX=Math.max(0,innerWidth-r.width),maxY=Math.max(44,innerHeight-40);let x=Math.min(Math.max(0,r.left),maxX),y=Math.min(Math.max(44,r.top),maxY);p.style.left=x+'px';p.style.top=y+'px';p.style.right='auto';p.style.bottom='auto'});savePS()}
 let _rzT;window.addEventListener('resize',()=>{const h=innerHeight-44;R.setSize(innerWidth,h);CAM.aspect=innerWidth/h;CAM.updateProjectionMatrix();clearTimeout(_rzT);_rzT=setTimeout(clampPanels,350)});
+
+/* Debug hooks for destructive acceptance tests — localhost only, absent in production */
+if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
+  window.__ELV_DEBUG={
+    spawnBurst(n){for(let k=0;k<(n||200);k++){const{fr,to}=genOD();paxList.push(mkPax(fr,to))}},
+    state(){return{spawned:_pid-_pidBase,alive:paxList.filter(p=>['WAITING','BOARDING','RIDING'].includes(p.state)).length,served:svcCnt,dropped:droppedCnt}},
+    breakConservation(){droppedCnt+=5},
+    snap(){logSnap();return{bannerVisible:G('ib').style.display!=='none'}}
+  };
+}
 
 // Init
 applyLang();
