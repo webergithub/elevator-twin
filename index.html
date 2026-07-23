@@ -100,6 +100,8 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <option value="lunch" data-zh="午餐双向" data-en="Lunch Two-Way">午餐双向</option>
       <option value="inter" data-zh="层间均匀" data-en="Interfloor Uniform">层间均匀</option>
     </select>
+    <label><span data-zh="随机种子（同种子可复现）:" data-en="Seed (reproducible runs):">随机种子（同种子可复现）:</span></label>
+    <input id="eseed" type="number" value="42" min="0" step="1" style="width:100%;padding:4px 6px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:12px;margin-bottom:3px">
     <button class="fpa" id="ebap" style="background:#c9944a;color:#0d0a07" data-zh="应用配置" data-en="Apply Config">应用配置</button>
     <button class="fpa" id="ebem" style="background:#f85149;color:#fff" data-zh="全体紧急停梯" data-en="Emergency Stop All">全体紧急停梯</button>
     <button class="fpa" id="ebcl" style="background:rgba(255,255,255,.08);color:#e6edf3;border:0.5px solid rgba(255,255,255,.18)" data-zh="清除 / 恢复" data-en="Clear / Resume">清除 / 恢复</button>
@@ -245,7 +247,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.9.0';
+const APP_VERSION='0.10.0-alpha.1';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -388,6 +390,12 @@ const shX=i=>i*(SW+SG),bW=n=>n*SW+(n-1)*SG;
 function getTS(){const t=new Date();return`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`}
 function fmtS(s){if(s<60)return s.toFixed(0)+'s';const m=Math.floor(s/60),r=Math.round(s%60);return r?`${m}m${r}s`:`${m}m`}
 function G(id){return document.getElementById(id)}
+/* PR-P0-2 deterministic PRNG — two independent streams: pax/traffic vs optimizer,
+   so annealing draws never perturb the passenger event sequence */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let rng=Math.random,optRng=Math.random;
+/* PR-P0-4 simulation clock — the ONLY time base for KPIs; wall clock is display-only */
+let simClock=0;
 
 /* ════════════════════════════════════════════════════════════
    LAYER 1 — CORE ELEVATOR PHYSICS
@@ -468,7 +476,7 @@ class TA{
   label(h){if(h>=7&&h<=9)return lang==='zh'?'上午高峰':'Morning Peak';if(h>=12&&h<=13)return lang==='zh'?'午休时段':'Lunch';if(h>=17&&h<=19)return lang==='zh'?'傍晚高峰':'Evening Peak';if(h>=20||h<6)return lang==='zh'?'夜间低峰':'Night';return lang==='zh'?'平峰时段':'Off-Peak'}
 }
 class IS{
-  optimize(dem,nE,nF){let cur=Array.from({length:nE},(_,i)=>Math.max(1,Math.round((i+.5)*nF/nE)));const cost=p=>{let c=0;for(let f=1;f<=nF;f++){const d=dem[f-1]||0;c+=d*Math.min(...p.map(x=>Math.abs(x-f)))}return c};let T=5,best=[...cur],bc=cost(cur);for(let i=0;i<800;i++){T*=.9944;const nx=[...cur];nx[Math.floor(Math.random()*nE)]=Math.floor(Math.random()*nF)+1;const nc=cost(nx),dc=nc-cost(cur);if(dc<0||Math.random()<Math.exp(-dc/Math.max(T,1e-4))){cur=nx;if(nc<bc){bc=nc;best=[...nx]}}}return{pos:best,cost:bc.toFixed(3)}}
+  optimize(dem,nE,nF){let cur=Array.from({length:nE},(_,i)=>Math.max(1,Math.round((i+.5)*nF/nE)));const cost=p=>{let c=0;for(let f=1;f<=nF;f++){const d=dem[f-1]||0;c+=d*Math.min(...p.map(x=>Math.abs(x-f)))}return c};let T=5,best=[...cur],bc=cost(cur);for(let i=0;i<800;i++){T*=.9944;const nx=[...cur];nx[Math.floor(optRng()*nE)]=Math.floor(optRng()*nF)+1;const nc=cost(nx),dc=nc-cost(cur);if(dc<0||optRng()<Math.exp(-dc/Math.max(T,1e-4))){cur=nx;if(nc<bc){bc=nc;best=[...nx]}}}return{pos:best,cost:bc.toFixed(3)}}
 }
 class ElevatorAgent{
   constructor(nF,nE){this.nF=nF;this.nE=nE;this._ta=new TA(nF);this._opt=new IS();this._pressCount=new Array(nF).fill(0);this.idlePos=null;this._dispCnt=new Array(nE).fill(0)}
@@ -581,11 +589,12 @@ function mkPax(from,to){
   const wx=-SW/2-0.65-qRow*0.5,wz=(qCol-1)*0.42;
   g.position.set(wx,(from-1)*FH+.02,wz);SC.add(g);
   logEv('pax','spawn',{pid:_pid,from,to});
-  return{id:_pid++,from,to,state:'WAITING',eid:null,spawn:performance.now()/1000,waitT:null,mesh:g,_tx:wx,_tz:wz,_et:0};
+  return{id:_pid++,from,to,state:'WAITING',eid:null,spawn:simClock,waitT:null,mesh:g,_tx:wx,_tz:wz,_et:0};
 }
 function paxTick(p,dt){
+  /* visual-only: position lerp + fade; state machine advances in simTick */
   const pos=p.mesh.position;pos.x+=(p._tx-pos.x)*Math.min(1,dt*5);pos.z+=(p._tz-pos.z)*Math.min(1,dt*5);
-  if(p.state==='EXITING'){p._et+=dt;const fade=1-Math.min(1,p._et/1.5);p.mesh.children.forEach(c=>{if(c.material){c.material.opacity=fade;c.material.transparent=true}});if(p._et>1.5){p.state='DONE';disposeObj(p.mesh);SC.remove(p.mesh)}}
+  if(p.state==='EXITING'){const fade=1-Math.min(1,p._et/1.5);p.mesh.children.forEach(c=>{if(c.material){c.material.opacity=fade;c.material.transparent=true}})}
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -637,7 +646,7 @@ function updStats(){
   [['eswt',w],['esrd',r],['essv',svcCnt],['esaw',`${aw}s`]].forEach(([id,v])=>{const e=G(id);if(e)e.textContent=v});
   const td=G('estrvl');if(td&&sys){const tot=sys.elevs.reduce((s,e)=>s+e.dist,0);td.textContent=`${(tot*FH).toFixed(0)}m`}
   if(!sys)return;
-  const nw=performance.now()/1000;
+  const nw=simClock;
   const ep5=G('esp5');if(ep5)ep5.textContent=servedWaits.length?`${pctl(servedWaits,.5).toFixed(0)}/${pctl(servedWaits,.95).toFixed(0)}s`:'—';
   const etp=G('estp');if(etp)etp.textContent=`${servedTimes.filter(t=>nw-t<=60).length}/min`;
   const ejr=G('esjr');if(ejr)ejr.textContent=servedJourneys.length?`${(servedJourneys.reduce((a,b)=>a+b,0)/servedJourneys.length).toFixed(0)}s`:'0s';
@@ -646,7 +655,7 @@ function updStats(){
   const edp=G('esdp');if(edp){edp.textContent=droppedCnt;edp.style.color=droppedCnt>0?'#f85149':'rgba(139,148,158,.7)'}
 }
 function updWaiting(){
-  const now=performance.now()/1000;
+  const now=simClock;
   const wp=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state));
   const total=wp.reduce((s,p)=>s+(now-p.spawn),0),mx=wp.length?Math.max(...wp.map(p=>now-p.spawn)):0;
   const et=G('ewtotal'),em=G('ewmax'),el=G('ewlist');
@@ -719,7 +728,7 @@ window.addEventListener('keydown',e=>{if(e.altKey&&e.key==='ArrowUp'){panCamY(2)
    ════════════════════════════════════════════════════════════ */
 let floorMult=[],globalMult=1;
 window.setFlM=(i,v)=>{if(i<floorMult.length)floorMult[i]=+v;const l=G('fm'+i);if(l)l.textContent=(+v)+'x'};
-function wRandFloor(){if(!floorMult.length)return Math.floor(Math.random()*cfg.floors)+1;const total=floorMult.reduce((a,b)=>a+b,0);if(!total)return Math.floor(Math.random()*cfg.floors)+1;let r=Math.random()*total;for(let i=0;i<floorMult.length;i++){r-=floorMult[i];if(r<=0)return i+1}return cfg.floors}
+function wRandFloor(){if(!floorMult.length)return Math.floor(rng()*cfg.floors)+1;const total=floorMult.reduce((a,b)=>a+b,0);if(!total)return Math.floor(rng()*cfg.floors)+1;let r=rng()*total;for(let i=0;i<floorMult.length;i++){r-=floorMult[i];if(r<=0)return i+1}return cfg.floors}
 /* ── Traffic-pattern OD generation ── */
 const TMODE_N={up:{zh:'上行高峰',en:'Up-Peak'},down:{zh:'下行高峰',en:'Down-Peak'},lunch:{zh:'午餐双向',en:'Lunch'},inter:{zh:'层间均匀',en:'Interfloor'}};
 function trafficMode(){
@@ -731,9 +740,9 @@ function genOD(){
   const m=trafficMode(),nF=cfg.floors;
   const upper=()=>Math.max(2,wRandFloor());
   let fr,to;
-  if(m==='up'){fr=Math.random()<.85?1:wRandFloor();to=upper()}
-  else if(m==='down'){to=Math.random()<.85?1:wRandFloor();fr=upper()}
-  else if(m==='lunch'){const mid=Math.max(2,Math.ceil(nF/2));if(Math.random()<.5){fr=Math.random()<.5?1:mid;to=wRandFloor()}else{fr=wRandFloor();to=Math.random()<.5?1:mid}}
+  if(m==='up'){fr=rng()<.85?1:wRandFloor();to=upper()}
+  else if(m==='down'){to=rng()<.85?1:wRandFloor();fr=upper()}
+  else if(m==='lunch'){const mid=Math.max(2,Math.ceil(nF/2));if(rng()<.5){fr=rng()<.5?1:mid;to=wRandFloor()}else{fr=wRandFloor();to=rng()<.5?1:mid}}
   else{fr=wRandFloor();to=wRandFloor()}
   let tries=0;while(to===fr&&tries++<16)to=wRandFloor();
   if(to===fr)to=fr%nF+1; /* deterministic fallback — prevents infinite loop when one weight dominates */
@@ -754,7 +763,7 @@ window.resetSpawn=resetSpawn;
 /* ════════════════════════════════════════════════════════════
    SETUP & OPTIMIZATION
    ════════════════════════════════════════════════════════════ */
-let cfg={floors:10,elevs:3,rate:5,traffic:'auto'};let sys,bG,e3ds,agent;
+let cfg={floors:10,elevs:3,rate:5,traffic:'auto',seed:42};let sys,bG,e3ds,agent;
 let _floorLEDs=[],_paused=false,_timeScale=1;
 let spT=0,optT=0,wtT=0;
 
@@ -774,7 +783,8 @@ function setup(c,isInit){
   cfg={...cfg,...c};
   if(bG){disposeObj(bG);SC.remove(bG)}if(e3ds)e3ds.forEach(e=>e.destroy());
   paxList.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
-  droppedCnt=0;_pidBase=_pid;const ib=G('ib');if(ib)ib.style.display='none';
+  droppedCnt=0;_pid=0;_pidBase=0;const ib=G('ib');if(ib)ib.style.display='none';
+  simClock=0;_acc=0;_warmupAt=0.6;rng=mulberry32(cfg.seed>>>0);optRng=mulberry32((cfg.seed^0x9E3779B9)>>>0);
   logBuf.length=0;logFlushIdx=0;snapT=0;logFlushT=0;
   dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
   sys=new ES(cfg.elevs,cfg.floors);sys.setAlgo(G('ealgo')?.value||'LOOK');
@@ -791,21 +801,20 @@ function setup(c,isInit){
   sys.on('dcls',({eid})=>{const e=sys.elevs[eid];logEv('elev','dcls',{eid,f:Math.round(e.pos),stops:[...e.stops]})});
   sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);if(agent._dispCnt)agent._dispCnt[eid]=(agent._dispCnt[eid]||0)+1;logEv('elev','call',{fl,dir,eid})});
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
-  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(Math.random()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+Math.random()*.8);px._tx=px.mesh.position.x+(Math.random()-.5)*1.5;px._tz=px.mesh.position.z+Math.random()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;const nw=performance.now()/1000;servedWaits.push(px.waitT);servedJourneys.push(nw-px.spawn);servedTimes.push(nw);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
+  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(rng()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+rng()*.8);px._tx=px.mesh.position.x+(rng()-.5)*1.5;px._tz=px.mesh.position.z+rng()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;servedWaits.push(px.waitT);servedJourneys.push(simClock-px.spawn);servedTimes.push(simClock);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
 
-  logEv('sys','start',{ver:APP_VERSION,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,traffic:cfg.traffic,algo:sys.algo});
+  logEv('sys','start',{ver:APP_VERSION,seed:cfg.seed,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,traffic:cfg.traffic,algo:sys.algo});
   const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
   {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
   if(isInit&&localStorage.getItem(LS_KEY)){restorePS();clampPanels()}else{layoutPanels(cfg.elevs)}
   runOpt();addLog(t('logStart'),'#3fb950');
-  setTimeout(()=>{if(sys&&cfg.floors>=4){sys.call(1,UP);sys.call(Math.ceil(cfg.floors/2),UP);if(cfg.floors>5)sys.call(cfg.floors,DOWN)}},600);
 }
 
 /* FIX: Board ANY passenger at floor F, not just eid-matched ones */
 function brdPax(eid,floor){
   const e=sys.elevs[eid];let passed=0;
   paxList.filter(p=>(p.state==='BOARDING'||p.state==='WAITING')&&p.from===floor).forEach(p=>{
-    if(e&&!e.full&&sys.board(eid,{id:p.id,to:p.to})){p.state='RIDING';const now=performance.now()/1000;p.waitT=now-p.spawn;p.mesh.visible=false;logEv('pax','board',{pid:p.id,eid,f:floor,to:p.to,wait_s:+p.waitT.toFixed(2)})}
+    if(e&&!e.full&&sys.board(eid,{id:p.id,to:p.to})){p.state='RIDING';p.waitT=simClock-p.spawn;p.mesh.visible=false;logEv('pax','board',{pid:p.id,eid,f:floor,to:p.to,wait_s:+p.waitT.toFixed(2)})}
     else if(p.state==='BOARDING'){p.state='WAITING';p.eid=null;p._bT=null;passed++}
   });
   if(passed>0){addLog(`E${eid+1} ${floor}${t('floorF')} ${lang==='zh'?'满员，':'FULL, '}${passed}${lang==='zh'?'人候下批':' left'}`,'#f85149');logEv('elev','passed_by',{eid,f:floor,count:passed})}
@@ -816,6 +825,7 @@ G('esel')?.addEventListener('input',e=>{const v=G('eve');if(v)v.textContent=e.ta
 G('essl')?.addEventListener('input',e=>{const v=G('evs');if(v)v.textContent=e.target.value;cfg.rate=+e.target.value});
 G('ealgo')?.addEventListener('change',e=>{sys?.setAlgo(e.target.value);const ab=G('ealgo2');if(ab)ab.textContent=e.target.value;addLog(`${t('logAlgo')}${e.target.value}`,'#e8b86d')});
 G('etraffic')?.addEventListener('change',e=>{cfg.traffic=e.target.value;const o=e.target.options[e.target.selectedIndex];addLog((lang==='zh'?'客流模式→':'Traffic→')+(lang==='zh'?o.dataset.zh:o.dataset.en),'#e8b86d');logEv('sys','traffic',{mode:e.target.value})});
+G('eseed')?.addEventListener('input',e=>{cfg.seed=Math.max(0,Math.floor(+e.target.value||0))});
 G('ebap')?.addEventListener('click',()=>setup(cfg));
 window.resetLayout=()=>{layoutPanels(cfg.elevs);addLog(lang==='zh'?'布局已重置':'Layout reset','#3fb950')};
 G('ebem')?.addEventListener('click',()=>{sys?.emrg();addLog(t('logEmrg'),'#f85149')});
@@ -826,31 +836,40 @@ G('ebon')?.addEventListener('click',()=>runOpt());
    ANIMATION LOOP
    ════════════════════════════════════════════════════════════ */
 let last=performance.now();
-function animate(now){
-  requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.05);last=now;controls.update();
-  if(!sys){R.render(SC,CAM);return}
-  const sdt=_paused?0:dt*_timeScale;
-  if(_twinMode==='sim'&&sdt>0){let rem=sdt;while(rem>0){const s=Math.min(.02,rem);sys.update(s);rem-=s}}
-  const all=sys.getAll();
-  e3ds?.forEach((e,i)=>e.update(dt,all[i]));
-  spT+=sdt;
-  if(sdt>0&&spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
-    spT=0;const base=Math.random()<.6?1:Math.random()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
+const SUB=0.02;let _acc=0,_warmupAt=0;
+/* PR-P0-1 core mechanism: ALL simulation state (physics, spawn, dispatch, timers)
+   advances only here, in fixed 0.02s quanta — results are chunking-invariant:
+   1x vs 8x, frame-driven or __ELV_DEBUG.tick(), identical event streams. */
+function simTick(){
+  simClock+=SUB;
+  if(_warmupAt&&simClock>=_warmupAt){_warmupAt=0;if(cfg.floors>=4){sys.call(1,UP);sys.call(Math.ceil(cfg.floors/2),UP);if(cfg.floors>5)sys.call(cfg.floors,DOWN)}}
+  if(_twinMode==='sim')sys.update(SUB);
+  spT+=SUB;
+  if(spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
+    spT=0;const base=rng()<.6?1:rng()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
     const batch={ts:getTS(),n,calls:[]};
     for(let k=0;k<n;k++){const{fr,to}=genOD();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
     dataFeed.unshift(batch);if(dataFeed.length>80)dataFeed.pop();updFeed();
   }
-  const _now=performance.now()/1000;
   paxList.forEach(p=>{
-    if(_twinMode==='sim'&&!_paused&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=_now;p._tx=shX(eid)+(Math.random()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(_now-p.spawn).toFixed(2)})}}
-    if(p.state==='BOARDING'&&p._bT&&_now-p._bT>90){p.state='WAITING';p.eid=null;p._bT=null}
-    paxTick(p,sdt);
+    if(_twinMode==='sim'&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=simClock;p._tx=shX(eid)+(rng()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(simClock-p.spawn).toFixed(2)})}}
+    if(p.state==='BOARDING'&&p._bT&&simClock-p._bT>90){p.state='WAITING';p.eid=null;p._bT=null}
+    if(p.state==='EXITING'){p._et+=SUB;if(p._et>1.5){p.state='DONE';disposeObj(p.mesh);SC.remove(p.mesh)}}
   });
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
   if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);if(rm.length){droppedCnt+=rm.length;logEv('pax','dropped',{count:rm.length,total:droppedCnt});addLog(`${lang==='zh'?'⚠ 超限丢弃':'⚠ Dropped'} ${rm.length}${lang==='zh'?' 人':' pax'}`,'#f85149')}rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
-  optT+=sdt;if(optT>=30){optT=0;setTimeout(runOpt,0)}
+  optT+=SUB;if(optT>=30){optT=0;runOpt()}
+  snapT+=SUB;if(snapT>=5){snapT=0;logSnap()}
+}
+function simStep(sdt){if(sdt<=0)return;_acc+=sdt;let guard=0;while(_acc>=SUB&&guard++<500000){simTick();_acc-=SUB}}
+function animate(now){
+  requestAnimationFrame(animate);const dt=Math.min((now-last)/1000,.05);last=now;controls.update();
+  if(!sys){R.render(SC,CAM);return}
+  simStep(_paused?0:dt*_timeScale);
+  const all=sys.getAll();
+  e3ds?.forEach((e,i)=>e.update(dt,all[i]));
+  paxList.forEach(p=>paxTick(p,dt));
   wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
-  snapT+=sdt;if(snapT>=5){snapT=0;logSnap()}
   logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
   if(_floorLEDs.length){const wbf=new Array(cfg.floors).fill(0);paxList.forEach(p=>{if(p.state==='WAITING'||p.state==='BOARDING')wbf[p.from-1]=(wbf[p.from-1]||0)+1});_floorLEDs.forEach((led,f)=>{if(led?.material)led.material.emissiveIntensity=Math.min(1.2,(wbf[f]||0)*.4)})}
   updCards(all);updStats();R.render(SC,CAM);
@@ -865,7 +884,9 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
     spawnBurst(n){for(let k=0;k<(n||200);k++){const{fr,to}=genOD();paxList.push(mkPax(fr,to))}},
     state(){return{spawned:_pid-_pidBase,alive:paxList.filter(p=>['WAITING','BOARDING','RIDING'].includes(p.state)).length,served:svcCnt,dropped:droppedCnt}},
     breakConservation(){droppedCnt+=5},
-    snap(){logSnap();return{bannerVisible:G('ib').style.display!=='none'}}
+    snap(){logSnap();return{bannerVisible:G('ib').style.display!=='none'}},
+    tick(s){simStep(+s||0)},
+    kpi(){return{simClock:+simClock.toFixed(3),spawned:_pid-_pidBase,served:svcCnt,dropped:droppedCnt,avgWait:svcCnt?+(waitSum/svcCnt).toFixed(4):0,p50:+pctl(servedWaits,.5).toFixed(4),p95:+pctl(servedWaits,.95).toFixed(4),travel:+sys.elevs.reduce((s,e)=>s+e.dist,0).toFixed(4)}}
   };
 }
 
