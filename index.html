@@ -100,8 +100,16 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <option value="lunch" data-zh="午餐双向" data-en="Lunch Two-Way">午餐双向</option>
       <option value="inter" data-zh="层间均匀" data-en="Interfloor Uniform">层间均匀</option>
     </select>
-    <label><span data-zh="随机种子（同种子可复现）:" data-en="Seed (reproducible runs):">随机种子（同种子可复现）:</span></label>
-    <input id="eseed" type="number" value="42" min="0" step="1" style="width:100%;padding:4px 6px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:12px;margin-bottom:3px">
+    <div style="display:flex;gap:6px;margin-bottom:3px">
+      <div style="flex:1;min-width:0">
+        <label><span data-zh="种子(可复现)" data-en="Seed (reproducible)">种子(可复现)</span></label>
+        <input id="eseed" type="number" value="42" min="0" step="1" style="width:100%;padding:4px 6px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:12px">
+      </div>
+      <div style="width:74px;flex-shrink:0">
+        <label><span data-zh="起始时" data-en="Start hr">起始时</span></label>
+        <input id="ehour" type="number" min="0" max="23" step="1" placeholder="auto" style="width:100%;padding:4px 6px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:12px">
+      </div>
+    </div>
     <button class="fpa" id="ebap" style="background:#c9944a;color:#0d0a07" data-zh="应用配置" data-en="Apply Config">应用配置</button>
     <button class="fpa" id="ebem" style="background:#f85149;color:#fff" data-zh="全体紧急停梯" data-en="Emergency Stop All">全体紧急停梯</button>
     <button class="fpa" id="ebcl" style="background:rgba(255,255,255,.08);color:#e6edf3;border:0.5px solid rgba(255,255,255,.18)" data-zh="清除 / 恢复" data-en="Clear / Resume">清除 / 恢复</button>
@@ -148,6 +156,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
   <div class="fp-bd" style="padding-bottom:4px">
     <div id="elogitems" style="max-height:180px;overflow:hidden"></div>
     <button class="fpa" onclick="dlLog()" style="margin-top:5px;background:rgba(201,148,74,.1);color:#c9944a;border:0.5px solid rgba(201,148,74,.3)" data-zh="⬇ 下载完整日志" data-en="⬇ Download Full Log">⬇ 下载完整日志</button>
+    <button class="fpa" onclick="dlBatch()" style="margin-top:3px;background:rgba(63,185,80,.1);color:#3fb950;border:0.5px solid rgba(63,185,80,.3)" data-zh="⬇ 批次报告 CSV（逐乘客）" data-en="⬇ Batch Report CSV (per-pax)">⬇ 批次报告 CSV（逐乘客）</button>
   </div>
 </div>
 
@@ -168,6 +177,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="利用率" data-en="Util">利用率</span> <b id="esut" style="color:#58a6ff">0%</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="能耗指数" data-en="Energy">能耗指数</span> <b id="esen" style="color:#e8b86d">0</b></span>
       <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="丢弃" data-en="Dropped">丢弃</span> <b id="esdp" style="color:rgba(139,148,158,.7)">0</b></span>
+      <span style="font-size:12px;color:rgba(139,148,158,.9)"><span data-zh="均载CF" data-en="Load CF">均载CF</span> <b id="escf" style="color:#58a6ff">0%</b></span>
     </div>
   </div>
 </div>
@@ -247,7 +257,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.10.0-alpha.1';
+const APP_VERSION='0.10.0-alpha.2';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -396,6 +406,10 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 let rng=Math.random,optRng=Math.random;
 /* PR-P0-4 simulation clock — the ONLY time base for KPIs; wall clock is display-only */
 let simClock=0;
+/* Simulation calendar: effective hour-of-day is fixed at setup (explicit cfg.startHour,
+   else a one-time wall-clock snapshot), so optimizer and auto-traffic are reproducible. */
+let _simHour=8;
+function simHour(){return _simHour}
 
 /* ════════════════════════════════════════════════════════════
    LAYER 1 — CORE ELEVATOR PHYSICS
@@ -470,7 +484,7 @@ class ES{
    ════════════════════════════════════════════════════════════ */
 class TA{
   constructor(nF){this.nF=nF;this._r={}}
-  record(f){const h=new Date().getHours();if(!this._r[h])this._r[h]=new Array(this.nF).fill(0);if(f>=1&&f<=this.nF)this._r[h][f-1]++}
+  record(f){const h=simHour();if(!this._r[h])this._r[h]=new Array(this.nF).fill(0);if(f>=1&&f<=this.nF)this._r[h][f-1]++}
   demand(h){const sy=this._syn(h),re=this._r[h]||new Array(this.nF).fill(0);const w=Object.keys(this._r).length>0?.35:0;const mx=sy.map((s,i)=>s*(1-w)+(re[i]||0)*w);const sm=mx.reduce((a,b)=>a+b,0);return sm>0?mx.map(v=>v/sm):new Array(this.nF).fill(1/this.nF)}
   _syn(h){const d=new Array(this.nF).fill(1);if(h>=7&&h<=9){d[0]+=22;for(let i=1;i<Math.min(3,this.nF);i++)d[i]+=9}if(h>=12&&h<=13){const m=Math.floor(this.nF/2);d[m]+=16;if(m>0)d[m-1]+=8;if(m<this.nF-1)d[m+1]+=8}if(h>=17&&h<=19){for(let i=Math.floor(this.nF*.55);i<this.nF;i++)d[i]+=12+(i-Math.floor(this.nF*.55))*2}if(h>=20||h<6){d[this.nF-1]+=10;if(this.nF>1)d[this.nF-2]+=5}return d}
   label(h){if(h>=7&&h<=9)return lang==='zh'?'上午高峰':'Morning Peak';if(h>=12&&h<=13)return lang==='zh'?'午休时段':'Lunch';if(h>=17&&h<=19)return lang==='zh'?'傍晚高峰':'Evening Peak';if(h>=20||h<6)return lang==='zh'?'夜间低峰':'Night';return lang==='zh'?'平峰时段':'Off-Peak'}
@@ -481,8 +495,8 @@ class IS{
 class ElevatorAgent{
   constructor(nF,nE){this.nF=nF;this.nE=nE;this._ta=new TA(nF);this._opt=new IS();this._pressCount=new Array(nF).fill(0);this.idlePos=null;this._dispCnt=new Array(nE).fill(0)}
   recordCall(floor){if(floor>=1&&floor<=this.nF){this._pressCount[floor-1]++;this._ta.record(floor)}}
-  optimize(){const h=new Date().getHours();const hd=this._ta.demand(h);const pt=this._pressCount.reduce((a,b)=>a+b,0);const dem=hd.map((v,i)=>{const pn=pt>0?this._pressCount[i]/pt:1/this.nF;return v*.65+pn*.35});const res=this._opt.optimize(dem,this.nE,this.nF);this.idlePos=res.pos;return{demand:dem,result:res,period:this._ta.label(h)}}
-  getDemand(){return this._ta.demand(new Date().getHours())}
+  optimize(){const h=simHour();const hd=this._ta.demand(h);const pt=this._pressCount.reduce((a,b)=>a+b,0);const dem=hd.map((v,i)=>{const pn=pt>0?this._pressCount[i]/pt:1/this.nF;return v*.65+pn*.35});const res=this._opt.optimize(dem,this.nE,this.nF);this.idlePos=res.pos;return{demand:dem,result:res,period:this._ta.label(h)}}
+  getDemand(){return this._ta.demand(simHour())}
   getPressCounts(){return[...this._pressCount]}
 }
 
@@ -578,6 +592,8 @@ const PCL=[0xc9944a,0xff6644,0x44dd88,0x58a6ff,0xcc44ff,0xff4488,0x22ccff,0xe8b8
 let _pid=0;const paxList=[];let svcCnt=0,waitSum=0;
 let droppedCnt=0,_pidBase=0; /* health self-check: cull counter + per-session spawn baseline */
 const servedWaits=[],servedJourneys=[],servedTimes=[]; /* KPI sample buffers, capped at 600 */
+const paxLedger=[]; /* PR-P0-6 per-passenger batch report, capped at 3000 */
+let loadSum=0,loadCnt=0; /* CIBSE capacity factor: mean loaded-departure car occupancy */
 function pctl(a,p){if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))]}
 
 function mkPax(from,to){
@@ -607,6 +623,16 @@ function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOStri
 async function flushLog(){if(location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'&&!window.__ELV_LOG_SINK){logFlushIdx=logBuf.length;return}if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
 function dlLog(){const lines=logBuf.map(e=>JSON.stringify(e)).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=`elv_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.jsonl`;document.body.appendChild(a);a.click();document.body.removeChild(a)}
 window.dlLog=dlLog;
+/* PR-P0-6 per-passenger batch report (CSV) — Elevate-style deliverable */
+function dlBatch(){
+  if(!paxLedger.length){addLog(lang==='zh'?'暂无已送乘客可导出':'No served passengers yet','#c9944a');return}
+  const hdr='id,from,to,spawn_s,wait_s,journey_s,served_s';
+  const rows=paxLedger.map(r=>`${r.id},${r.from},${r.to},${r.spawn.toFixed(2)},${r.wait.toFixed(2)},${r.journey.toFixed(2)},${r.served.toFixed(2)}`);
+  const csv=[hdr,...rows].join('\n')+'\n';
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`elv_batch_seed${cfg.seed}_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.csv`;document.body.appendChild(a);a.click();document.body.removeChild(a);
+  addLog(`${lang==='zh'?'已导出批次报告':'Batch report exported'} (${paxLedger.length})`,'#3fb950');
+}
+window.dlBatch=dlBatch;
 function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,dropped:droppedCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))});integrityCheck(w+r)}
 /* Health self-check: spawned must equal alive + served + dropped (passenger conservation) */
 function integrityCheck(alive){
@@ -653,6 +679,7 @@ function updStats(){
   const eut=G('esut');if(eut){const u=sys.elevs.reduce((s,e)=>s+(e.life?e.busy/e.life:0),0)/sys.elevs.length*100;eut.textContent=`${u.toFixed(0)}%`;eut.style.color=u>85?'#f85149':u>60?'#c9944a':'#58a6ff'}
   const een=G('esen');if(een)een.textContent=`${sys.elevs.reduce((s,e)=>s+e.dist*FH+e.starts*8,0).toFixed(0)}`;
   const edp=G('esdp');if(edp){edp.textContent=droppedCnt;edp.style.color=droppedCnt>0?'#f85149':'rgba(139,148,158,.7)'}
+  const ecf=G('escf');if(ecf){const cf=loadCnt?loadSum/loadCnt/CAP*100:0;ecf.textContent=`${cf.toFixed(0)}%`;ecf.style.color=cf>80?'#f85149':cf>50?'#c9944a':'#58a6ff'}
 }
 function updWaiting(){
   const now=simClock;
@@ -733,7 +760,7 @@ function wRandFloor(){if(!floorMult.length)return Math.floor(rng()*cfg.floors)+1
 const TMODE_N={up:{zh:'上行高峰',en:'Up-Peak'},down:{zh:'下行高峰',en:'Down-Peak'},lunch:{zh:'午餐双向',en:'Lunch'},inter:{zh:'层间均匀',en:'Interfloor'}};
 function trafficMode(){
   let m=cfg.traffic||'auto';
-  if(m==='auto'){const h=new Date().getHours();m=(h>=7&&h<=9)?'up':(h>=17&&h<=19)?'down':(h>=12&&h<=13)?'lunch':'inter'}
+  if(m==='auto'){const h=simHour();m=(h>=7&&h<=9)?'up':(h>=17&&h<=19)?'down':(h>=12&&h<=13)?'lunch':'inter'}
   return m;
 }
 function genOD(){
@@ -776,7 +803,7 @@ function runOpt(){
   if(ol)ol.textContent=getTS();if(oc)oc.textContent=`cost:${r.result.cost}`;
   updOptUI(r.demand,r.result,r.period);
   addLog(`${t('logOptDone')}${r.result.cost}`,'#3fb950');
-  logEv('opt','run',{h:new Date().getHours(),period:r.period,positions:r.result.pos,cost:+r.result.cost,press:agent.getPressCounts()});
+  logEv('opt','run',{h:simHour(),period:r.period,positions:r.result.pos,cost:+r.result.cost,press:agent.getPressCounts()});
 }
 
 function setup(c,isInit){
@@ -785,6 +812,8 @@ function setup(c,isInit){
   paxList.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
   droppedCnt=0;_pid=0;_pidBase=0;const ib=G('ib');if(ib)ib.style.display='none';
   simClock=0;_acc=0;_warmupAt=0.6;rng=mulberry32(cfg.seed>>>0);optRng=mulberry32((cfg.seed^0x9E3779B9)>>>0);
+  paxLedger.length=0;loadSum=0;loadCnt=0;
+  _simHour=(cfg.startHour!=null)?cfg.startHour:new Date().getHours();
   logBuf.length=0;logFlushIdx=0;snapT=0;logFlushT=0;
   dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
   sys=new ES(cfg.elevs,cfg.floors);sys.setAlgo(G('ealgo')?.value||'LOOK');
@@ -798,12 +827,12 @@ function setup(c,isInit){
   sys.on('arr',({eid,f})=>{addLog(`E${eid+1} → ${f}${t('floorF')}`,'#c9944a');logEv('elev','arr',{eid,f,stops:[...sys.elevs[eid].stops]})});
   sys.on('dopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} ${lang==='zh'?'开门':'door open'}`,'#e8b86d');brdPax(eid,f);logEv('elev','dopen',{eid,f})});
   sys.on('reopen',({eid,f})=>{addLog(`E${eid+1} ${f}${t('floorF')} ${lang==='zh'?'重开门':'reopen'}`,'#e8b86d');logEv('elev','reopen',{eid,f})});
-  sys.on('dcls',({eid})=>{const e=sys.elevs[eid];logEv('elev','dcls',{eid,f:Math.round(e.pos),stops:[...e.stops]})});
+  sys.on('dcls',({eid})=>{const e=sys.elevs[eid];if(e.pax.length>0){loadSum+=e.pax.length;loadCnt++}logEv('elev','dcls',{eid,f:Math.round(e.pos),load:e.pax.length,stops:[...e.stops]})});
   sys.on('call',({fl,dir,eid})=>{addLog(`${fl}${t('floorF')} → E${eid+1}`,'rgba(200,210,220,.7)');agent.recordCall(fl);if(agent._dispCnt)agent._dispCnt[eid]=(agent._dispCnt[eid]||0)+1;logEv('elev','call',{fl,dir,eid})});
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
-  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(rng()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+rng()*.8);px._tx=px.mesh.position.x+(rng()-.5)*1.5;px._tz=px.mesh.position.z+rng()*.7;if(px.waitT!=null){waitSum+=px.waitT;svcCnt++;servedWaits.push(px.waitT);servedJourneys.push(simClock-px.spawn);servedTimes.push(simClock);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
+  sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(rng()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+rng()*.8);px._tx=px.mesh.position.x+(rng()-.5)*1.5;px._tz=px.mesh.position.z+rng()*.7;if(px.waitT!=null){const jr=simClock-px.spawn;waitSum+=px.waitT;svcCnt++;servedWaits.push(px.waitT);servedJourneys.push(jr);servedTimes.push(simClock);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}if(paxLedger.length<3000)paxLedger.push({id:px.id,from:px.from,to:px.to,spawn:px.spawn,wait:px.waitT,journey:jr,served:simClock});logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
 
-  logEv('sys','start',{ver:APP_VERSION,seed:cfg.seed,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,traffic:cfg.traffic,algo:sys.algo});
+  logEv('sys','start',{ver:APP_VERSION,seed:cfg.seed,hour:_simHour,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,traffic:cfg.traffic,algo:sys.algo});
   const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
   {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
   if(isInit&&localStorage.getItem(LS_KEY)){restorePS();clampPanels()}else{layoutPanels(cfg.elevs)}
@@ -826,6 +855,7 @@ G('essl')?.addEventListener('input',e=>{const v=G('evs');if(v)v.textContent=e.ta
 G('ealgo')?.addEventListener('change',e=>{sys?.setAlgo(e.target.value);const ab=G('ealgo2');if(ab)ab.textContent=e.target.value;addLog(`${t('logAlgo')}${e.target.value}`,'#e8b86d')});
 G('etraffic')?.addEventListener('change',e=>{cfg.traffic=e.target.value;const o=e.target.options[e.target.selectedIndex];addLog((lang==='zh'?'客流模式→':'Traffic→')+(lang==='zh'?o.dataset.zh:o.dataset.en),'#e8b86d');logEv('sys','traffic',{mode:e.target.value})});
 G('eseed')?.addEventListener('input',e=>{cfg.seed=Math.max(0,Math.floor(+e.target.value||0))});
+G('ehour')?.addEventListener('input',e=>{const v=e.target.value;cfg.startHour=(v===''||v==null)?null:Math.max(0,Math.min(23,Math.floor(+v)))});
 G('ebap')?.addEventListener('click',()=>setup(cfg));
 window.resetLayout=()=>{layoutPanels(cfg.elevs);addLog(lang==='zh'?'布局已重置':'Layout reset','#3fb950')};
 G('ebem')?.addEventListener('click',()=>{sys?.emrg();addLog(t('logEmrg'),'#f85149')});
@@ -886,7 +916,9 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
     breakConservation(){droppedCnt+=5},
     snap(){logSnap();return{bannerVisible:G('ib').style.display!=='none'}},
     tick(s){simStep(+s||0)},
-    kpi(){return{simClock:+simClock.toFixed(3),spawned:_pid-_pidBase,served:svcCnt,dropped:droppedCnt,avgWait:svcCnt?+(waitSum/svcCnt).toFixed(4):0,p50:+pctl(servedWaits,.5).toFixed(4),p95:+pctl(servedWaits,.95).toFixed(4),travel:+sys.elevs.reduce((s,e)=>s+e.dist,0).toFixed(4)}}
+    kpi(){return{simClock:+simClock.toFixed(3),spawned:_pid-_pidBase,served:svcCnt,dropped:droppedCnt,avgWait:svcCnt?+(waitSum/svcCnt).toFixed(4):0,p50:+pctl(servedWaits,.5).toFixed(4),p95:+pctl(servedWaits,.95).toFixed(4),travel:+sys.elevs.reduce((s,e)=>s+e.dist,0).toFixed(4),cf:loadCnt?+(loadSum/loadCnt/CAP).toFixed(4):0,ledger:paxLedger.length}},
+    setHour(h){cfg.startHour=h},
+    ledgerSum(){let w=0,j=0;paxLedger.forEach(r=>{w+=r.wait;j+=r.journey});return{rows:paxLedger.length,wsum:+w.toFixed(4),jsum:+j.toFixed(4)}}
   };
 }
 
