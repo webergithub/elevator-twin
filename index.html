@@ -141,6 +141,10 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
     <div style="font-size:11px;color:rgba(139,148,158,.5)" id="eoptlast" data-zh="等待优化…" data-en="Awaiting optimization…">等待优化…</div>
     <div style="font-size:11px;color:rgba(139,148,158,.4)" id="eoptcost"></div>
     <button class="fpa" id="ebon" style="background:rgba(63,185,80,.1);color:#3fb950;border:0.5px solid rgba(63,185,80,.35)" data-zh="立即优化" data-en="Optimize Now">立即优化</button>
+    <hr class="hr">
+    <div style="font-size:11px;color:rgba(139,148,158,.7);margin-bottom:3px" data-zh="理论运力（上行高峰 RTT 法）" data-en="Theoretical Capacity (up-peak RTT)">理论运力（上行高峰 RTT 法）</div>
+    <div id="ertt" style="font-size:11px;line-height:1.7"></div>
+    <div style="font-size:10px;color:rgba(139,148,158,.4);margin-top:2px" data-zh="理论候梯 vs 实测均等待 = 调度效率" data-en="theoretical vs measured wait = dispatch efficiency">理论候梯 vs 实测均等待 = 调度效率</div>
   </div>
 </div>
 
@@ -257,7 +261,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.10.0-alpha.2';
+const APP_VERSION='0.10.0-alpha.3';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -313,7 +317,7 @@ function applyLang(){
   G('ypan-lbl').textContent = t('ypanLbl');
   G('ypan-rst').textContent = t('ypanRst');
   G('ypan-hint').textContent = t('ypanHint');
-  if(cfg?.elevs){ bldCards(cfg.elevs); bldTwinInputs(); }
+  if(cfg?.elevs){ bldCards(cfg.elevs); bldTwinInputs(); if(typeof updRTT==='function')updRTT(); }
   localStorage.setItem(LANG_KEY, lang);
 }
 function toggleLang(){ lang=lang==='zh'?'en':'zh'; applyLang(); }
@@ -698,6 +702,30 @@ function updWaiting(){
     }).join('');
   }
 }
+/* PR-P0-3 CIBSE up-peak Round-Trip-Time method, expressed in THIS sim's physics
+   (floor units, sim constants) so theoretical figures are comparable to measured KPIs.
+   RTT = 2*H*tv + (S+1)*ts + 2*P*tp  (Barney/CIBSE Guide D). */
+function computeRTT(nF,nE,cap){
+  const N=Math.max(1,nF-1);                         // serviceable floors above the entrance
+  const P=Math.min(cap,Math.max(1,Math.round(0.8*cap))); // design car load (80% capacity factor)
+  const S=N*(1-Math.pow((N-1)/N,P));                // expected stops
+  let acc=0;for(let i=1;i<=N-1;i++)acc+=Math.pow(i/N,P);
+  const H=N-acc;                                    // expected highest reversal floor
+  const tv=1/SPD;                                   // per-floor run time at rated speed
+  const tacc=SPD/ACC;                               // stop/start accel penalty per stop
+  const ts=tacc+2*DANIM+DOPEN_MIN;                  // stop loss: accel + open + dwell base + close
+  const tp=TPP;                                     // passenger transfer time
+  const RTT=2*H*tv+(S+1)*ts+2*P*tp;
+  const INT=RTT/Math.max(1,nE);
+  return {N,P,S:+S.toFixed(2),H:+H.toFixed(2),RTT:+RTT.toFixed(1),INT:+INT.toFixed(1),theoWait:+(INT*0.5).toFixed(1),UPPHC:Math.round(300/INT*P)};
+}
+function updRTT(){
+  const el=G('ertt');if(!el)return;
+  const r=computeRTT(cfg.floors,cfg.elevs,CAP);
+  const meas=svcCnt?(waitSum/svcCnt):null;
+  const cmp=meas!=null?`　<span style="color:${meas<=r.theoWait*1.5?'#3fb950':meas<=r.theoWait*3?'#c9944a':'#f85149'}">${lang==='zh'?'实测':'meas'} ${meas.toFixed(1)}s</span>`:'';
+  el.innerHTML=`<span style="color:rgba(139,148,158,.8)">RTT</span> <b style="color:#e8b86d">${r.RTT}s</b>　<span style="color:rgba(139,148,158,.8)">${lang==='zh'?'间隔':'INT'}</span> <b style="color:#e8b86d">${r.INT}s</b><br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'理论候梯':'theo wait'}</span> <b style="color:#58a6ff">${r.theoWait}s</b>${cmp}<br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'5min运力':'5-min cap'}</span> <b style="color:#3fb950">${r.UPPHC}${lang==='zh'?'人':'p'}</b>　<span style="color:rgba(139,148,158,.5)">P${r.P} S${r.S} H${r.H}</span>`;
+}
 function updOptUI(dem,res,period){
   const ep=G('eperiod'),ed=G('edemand'),ei=G('eidle');
   if(ep)ep.textContent=period;
@@ -836,7 +864,7 @@ function setup(c,isInit){
   const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
   {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
   if(isInit&&localStorage.getItem(LS_KEY)){restorePS();clampPanels()}else{layoutPanels(cfg.elevs)}
-  runOpt();addLog(t('logStart'),'#3fb950');
+  runOpt();updRTT();addLog(t('logStart'),'#3fb950');
 }
 
 /* FIX: Board ANY passenger at floor F, not just eid-matched ones */
@@ -849,8 +877,8 @@ function brdPax(eid,floor){
   if(passed>0){addLog(`E${eid+1} ${floor}${t('floorF')} ${lang==='zh'?'满员，':'FULL, '}${passed}${lang==='zh'?'人候下批':' left'}`,'#f85149');logEv('elev','passed_by',{eid,f:floor,count:passed})}
 }
 
-G('esfl')?.addEventListener('input',e=>{const v=G('evf');if(v)v.textContent=e.target.value;cfg.floors=+e.target.value});
-G('esel')?.addEventListener('input',e=>{const v=G('eve');if(v)v.textContent=e.target.value;cfg.elevs=+e.target.value});
+G('esfl')?.addEventListener('input',e=>{const v=G('evf');if(v)v.textContent=e.target.value;cfg.floors=+e.target.value;updRTT()});
+G('esel')?.addEventListener('input',e=>{const v=G('eve');if(v)v.textContent=e.target.value;cfg.elevs=+e.target.value;updRTT()});
 G('essl')?.addEventListener('input',e=>{const v=G('evs');if(v)v.textContent=e.target.value;cfg.rate=+e.target.value});
 G('ealgo')?.addEventListener('change',e=>{sys?.setAlgo(e.target.value);const ab=G('ealgo2');if(ab)ab.textContent=e.target.value;addLog(`${t('logAlgo')}${e.target.value}`,'#e8b86d')});
 G('etraffic')?.addEventListener('change',e=>{cfg.traffic=e.target.value;const o=e.target.options[e.target.selectedIndex];addLog((lang==='zh'?'客流模式→':'Traffic→')+(lang==='zh'?o.dataset.zh:o.dataset.en),'#e8b86d');logEv('sys','traffic',{mode:e.target.value})});
@@ -889,7 +917,7 @@ function simTick(){
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
   if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);if(rm.length){droppedCnt+=rm.length;logEv('pax','dropped',{count:rm.length,total:droppedCnt});addLog(`${lang==='zh'?'⚠ 超限丢弃':'⚠ Dropped'} ${rm.length}${lang==='zh'?' 人':' pax'}`,'#f85149')}rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
   optT+=SUB;if(optT>=30){optT=0;runOpt()}
-  snapT+=SUB;if(snapT>=5){snapT=0;logSnap()}
+  snapT+=SUB;if(snapT>=5){snapT=0;logSnap();updRTT()}
 }
 function simStep(sdt){if(sdt<=0)return;_acc+=sdt;let guard=0;while(_acc>=SUB&&guard++<500000){simTick();_acc-=SUB}}
 function animate(now){
@@ -899,7 +927,7 @@ function animate(now){
   const all=sys.getAll();
   e3ds?.forEach((e,i)=>e.update(dt,all[i]));
   paxList.forEach(p=>paxTick(p,dt));
-  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
+  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();updRTT();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
   logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
   if(_floorLEDs.length){const wbf=new Array(cfg.floors).fill(0);paxList.forEach(p=>{if(p.state==='WAITING'||p.state==='BOARDING')wbf[p.from-1]=(wbf[p.from-1]||0)+1});_floorLEDs.forEach((led,f)=>{if(led?.material)led.material.emissiveIntensity=Math.min(1.2,(wbf[f]||0)*.4)})}
   updCards(all);updStats();R.render(SC,CAM);
@@ -918,6 +946,7 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
     tick(s){simStep(+s||0)},
     kpi(){return{simClock:+simClock.toFixed(3),spawned:_pid-_pidBase,served:svcCnt,dropped:droppedCnt,avgWait:svcCnt?+(waitSum/svcCnt).toFixed(4):0,p50:+pctl(servedWaits,.5).toFixed(4),p95:+pctl(servedWaits,.95).toFixed(4),travel:+sys.elevs.reduce((s,e)=>s+e.dist,0).toFixed(4),cf:loadCnt?+(loadSum/loadCnt/CAP).toFixed(4):0,ledger:paxLedger.length}},
     setHour(h){cfg.startHour=h},
+    rtt(){return computeRTT(cfg.floors,cfg.elevs,CAP)},
     ledgerSum(){let w=0,j=0;paxLedger.forEach(r=>{w+=r.wait;j+=r.journey});return{rows:paxLedger.length,wsum:+w.toFixed(4),jsum:+j.toFixed(4)}}
   };
 }
