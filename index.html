@@ -86,6 +86,8 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
     <label><span data-zh="楼层数:" data-en="Floors:">楼层数:</span> <span id="evf">10</span></label><input type="range" id="esfl" min="4" max="20" value="10">
     <label><span data-zh="电梯数量:" data-en="Elevators:">电梯数量:</span> <span id="eve">3</span></label><input type="range" id="esel" min="1" max="5" value="3">
     <label><span data-zh="批次间隔(s):" data-en="Batch Rate(s):">批次间隔(s):</span> <span id="evs">5</span></label><input type="range" id="essl" min="2" max="15" value="5">
+    <label><span data-zh="楼宇人口:" data-en="Population:">楼宇人口:</span> <span id="evp">200</span></label><input type="range" id="espp" min="30" max="500" step="10" value="200">
+    <label><span data-zh="需求强度(%人口/5min):" data-en="Demand (%pop/5min):">需求强度(%人口/5min):</span> <span id="evd">12</span></label><input type="range" id="esdm" min="1" max="20" step="0.5" value="12">
     <label data-zh="调度算法" data-en="Dispatch Algorithm">调度算法</label>
     <select id="ealgo">
       <option value="LOOK" data-zh="LOOK 双向扫描" data-en="LOOK Scan">LOOK 双向扫描</option>
@@ -261,7 +263,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.10.0-alpha.3';
+const APP_VERSION='0.10.0-alpha.4';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -724,7 +726,10 @@ function updRTT(){
   const r=computeRTT(cfg.floors,cfg.elevs,CAP);
   const meas=svcCnt?(waitSum/svcCnt):null;
   const cmp=meas!=null?`　<span style="color:${meas<=r.theoWait*1.5?'#3fb950':meas<=r.theoWait*3?'#c9944a':'#f85149'}">${lang==='zh'?'实测':'meas'} ${meas.toFixed(1)}s</span>`:'';
-  el.innerHTML=`<span style="color:rgba(139,148,158,.8)">RTT</span> <b style="color:#e8b86d">${r.RTT}s</b>　<span style="color:rgba(139,148,158,.8)">${lang==='zh'?'间隔':'INT'}</span> <b style="color:#e8b86d">${r.INT}s</b><br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'理论候梯':'theo wait'}</span> <b style="color:#58a6ff">${r.theoWait}s</b>${cmp}<br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'5min运力':'5-min cap'}</span> <b style="color:#3fb950">${r.UPPHC}${lang==='zh'?'人':'p'}</b>　<span style="color:rgba(139,148,158,.5)">P${r.P} S${r.S} H${r.H}</span>`;
+  const req=Math.round(cfg.population*cfg.demand/100*Math.max(1,globalMult));
+  const satC=req>r.UPPHC?'#f85149':req>r.UPPHC*.8?'#c9944a':'#3fb950';
+  const sat=req>r.UPPHC?(lang==='zh'?' ⚠饱和':' ⚠SAT'):'';
+  el.innerHTML=`<span style="color:rgba(139,148,158,.8)">RTT</span> <b style="color:#e8b86d">${r.RTT}s</b>　<span style="color:rgba(139,148,158,.8)">${lang==='zh'?'间隔':'INT'}</span> <b style="color:#e8b86d">${r.INT}s</b><br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'理论候梯':'theo wait'}</span> <b style="color:#58a6ff">${r.theoWait}s</b>${cmp}<br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'5min运力':'5-min cap'}</span> <b style="color:#3fb950">${r.UPPHC}${lang==='zh'?'人':'p'}</b>　<span style="color:rgba(139,148,158,.8)">${lang==='zh'?'需求':'demand'}</span> <b style="color:${satC}">${req}${lang==='zh'?'人':'p'}${sat}</b><br><span style="color:rgba(139,148,158,.5)">P${r.P} S${r.S} H${r.H}</span>`;
 }
 function updOptUI(dem,res,period){
   const ep=G('eperiod'),ed=G('edemand'),ei=G('eidle');
@@ -791,15 +796,20 @@ function trafficMode(){
   if(m==='auto'){const h=simHour();m=(h>=7&&h<=9)?'up':(h>=17&&h<=19)?'down':(h>=12&&h<=13)?'lunch':'inter'}
   return m;
 }
+/* PR-P0-5 CIBSE-style template mixes: [incoming, outgoing, interfloor] shares.
+   Up-peak 85/10/5 and lunch 45/45/10 are the published survey figures
+   (Peters/Smith Elevcon 2010, CIBSE Guide D); down-peak ~90% outgoing. */
+const TMIX={up:[.85,.10,.05],down:[.05,.90,.05],lunch:[.45,.45,.10],inter:[0,0,1]};
 function genOD(){
-  const m=trafficMode(),nF=cfg.floors;
+  const m=trafficMode(),nF=cfg.floors,mix=TMIX[m]||TMIX.inter;
   const upper=()=>Math.max(2,wRandFloor());
   let fr,to;
-  if(m==='up'){fr=rng()<.85?1:wRandFloor();to=upper()}
-  else if(m==='down'){to=rng()<.85?1:wRandFloor();fr=upper()}
-  else if(m==='lunch'){const mid=Math.max(2,Math.ceil(nF/2));if(rng()<.5){fr=rng()<.5?1:mid;to=wRandFloor()}else{fr=wRandFloor();to=rng()<.5?1:mid}}
+  const r=rng(),inter=r>=mix[0]+mix[1];
+  if(r<mix[0]){fr=1;to=upper()}                                   /* incoming: lobby to upper */
+  else if(!inter){fr=upper();to=1}                                /* outgoing: upper to lobby */
+  else if(nF>=3){fr=upper();to=upper()}                           /* interfloor: upper to upper */
   else{fr=wRandFloor();to=wRandFloor()}
-  let tries=0;while(to===fr&&tries++<16)to=wRandFloor();
+  let tries=0;while(to===fr&&tries++<16)to=(inter&&nF>=3)?upper():wRandFloor();
   if(to===fr)to=fr%nF+1; /* deterministic fallback — prevents infinite loop when one weight dominates */
   return{fr,to};
 }
@@ -818,7 +828,7 @@ window.resetSpawn=resetSpawn;
 /* ════════════════════════════════════════════════════════════
    SETUP & OPTIMIZATION
    ════════════════════════════════════════════════════════════ */
-let cfg={floors:10,elevs:3,rate:5,traffic:'auto',seed:42};let sys,bG,e3ds,agent;
+let cfg={floors:10,elevs:3,rate:5,traffic:'auto',seed:42,population:200,demand:12};let sys,bG,e3ds,agent;
 let _floorLEDs=[],_paused=false,_timeScale=1;
 let spT=0,optT=0,wtT=0;
 
@@ -860,7 +870,7 @@ function setup(c,isInit){
   sys.on('imv',({eid,to})=>{addLog(`E${eid+1} →${to}${t('floorF')}`,'rgba(63,185,80,.8)');logEv('elev','imv',{eid,to})});
   sys.on('exit',({eid,f,p})=>{const px=paxList.find(x=>x.id===p.id);if(px){px.state='EXITING';px._et=0;px.mesh.visible=true;px.mesh.position.set(shX(eid)+(rng()-.5)*1.2,(f-1)*FH+.02,SD/2+1.3+rng()*.8);px._tx=px.mesh.position.x+(rng()-.5)*1.5;px._tz=px.mesh.position.z+rng()*.7;if(px.waitT!=null){const jr=simClock-px.spawn;waitSum+=px.waitT;svcCnt++;servedWaits.push(px.waitT);servedJourneys.push(jr);servedTimes.push(simClock);if(servedWaits.length>600){servedWaits.shift();servedJourneys.shift();servedTimes.shift()}if(paxLedger.length<3000)paxLedger.push({id:px.id,from:px.from,to:px.to,spawn:px.spawn,wait:px.waitT,journey:jr,served:simClock});logEv('pax','arrive',{pid:px.id,eid,f,wait_s:+px.waitT.toFixed(2)})}}});
 
-  logEv('sys','start',{ver:APP_VERSION,seed:cfg.seed,hour:_simHour,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,traffic:cfg.traffic,algo:sys.algo});
+  logEv('sys','start',{ver:APP_VERSION,seed:cfg.seed,hour:_simHour,floors:cfg.floors,elevs:cfg.elevs,rate:cfg.rate,pop:cfg.population,demand:cfg.demand,traffic:cfg.traffic,algo:sys.algo});
   const bh=cfg.floors*FH,bw=bW(cfg.elevs);_cx=bw/2-SW/2;_cy=bh/2;
   {const fovR=CAM.fov*Math.PI/180;const dist=Math.max((bh+8)/(2*Math.tan(fovR/2)),bw*2.2+4,18);CAM.position.set(_cx,_cy,dist);controls.target.set(_cx,_cy,0);controls.update();}
   if(isInit&&localStorage.getItem(LS_KEY)){restorePS();clampPanels()}else{layoutPanels(cfg.elevs)}
@@ -880,6 +890,8 @@ function brdPax(eid,floor){
 G('esfl')?.addEventListener('input',e=>{const v=G('evf');if(v)v.textContent=e.target.value;cfg.floors=+e.target.value;updRTT()});
 G('esel')?.addEventListener('input',e=>{const v=G('eve');if(v)v.textContent=e.target.value;cfg.elevs=+e.target.value;updRTT()});
 G('essl')?.addEventListener('input',e=>{const v=G('evs');if(v)v.textContent=e.target.value;cfg.rate=+e.target.value});
+G('espp')?.addEventListener('input',e=>{const v=G('evp');if(v)v.textContent=e.target.value;cfg.population=+e.target.value;updRTT()});
+G('esdm')?.addEventListener('input',e=>{const v=G('evd');if(v)v.textContent=e.target.value;cfg.demand=+e.target.value;updRTT()});
 G('ealgo')?.addEventListener('change',e=>{sys?.setAlgo(e.target.value);const ab=G('ealgo2');if(ab)ab.textContent=e.target.value;addLog(`${t('logAlgo')}${e.target.value}`,'#e8b86d')});
 G('etraffic')?.addEventListener('change',e=>{cfg.traffic=e.target.value;const o=e.target.options[e.target.selectedIndex];addLog((lang==='zh'?'客流模式→':'Traffic→')+(lang==='zh'?o.dataset.zh:o.dataset.en),'#e8b86d');logEv('sys','traffic',{mode:e.target.value})});
 G('eseed')?.addEventListener('input',e=>{cfg.seed=Math.max(0,Math.floor(+e.target.value||0))});
@@ -903,11 +915,15 @@ function simTick(){
   if(_warmupAt&&simClock>=_warmupAt){_warmupAt=0;if(cfg.floors>=4){sys.call(1,UP);sys.call(Math.ceil(cfg.floors/2),UP);if(cfg.floors>5)sys.call(cfg.floors,DOWN)}}
   if(_twinMode==='sim')sys.update(SUB);
   spT+=SUB;
-  if(spT>=cfg.rate/Math.max(1,globalMult)&&cfg.floors>=2){
-    spT=0;const base=rng()<.6?1:rng()<.55?2:3;const n=Math.min(8,Math.round(base*Math.max(1,globalMult)));
-    const batch={ts:getTS(),n,calls:[]};
-    for(let k=0;k<n;k++){const{fr,to}=genOD();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
-    dataFeed.unshift(batch);if(dataFeed.length>80)dataFeed.pop();updFeed();
+  if(spT>=cfg.rate&&cfg.floors>=2){
+    /* PR-P0-5 demand model: expected arrivals = population x demand%/5min, batched per rate window */
+    spT=0;const exp=cfg.population*cfg.demand/100/300*cfg.rate*Math.max(1,globalMult);
+    const n=Math.min(12,Math.floor(exp)+(rng()<exp-Math.floor(exp)?1:0));
+    if(n>0){
+      const batch={ts:getTS(),n,calls:[]};
+      for(let k=0;k<n;k++){const{fr,to}=genOD();paxList.push(mkPax(fr,to));batch.calls.push({fr,to})}
+      dataFeed.unshift(batch);if(dataFeed.length>80)dataFeed.pop();updFeed();
+    }
   }
   paxList.forEach(p=>{
     if(_twinMode==='sim'&&p.state==='WAITING'){const eid=sys.call(p.from,p.to>p.from?UP:DOWN);if(eid>=0){p.state='BOARDING';p.eid=eid;p._bT=simClock;p._tx=shX(eid)+(rng()-.5)*.5;p._tz=SD/2-.1;logEv('pax','dispatch',{pid:p.id,eid,from:p.from,to:p.to,wait_s:+(simClock-p.spawn).toFixed(2)})}}
@@ -947,6 +963,7 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
     kpi(){return{simClock:+simClock.toFixed(3),spawned:_pid-_pidBase,served:svcCnt,dropped:droppedCnt,avgWait:svcCnt?+(waitSum/svcCnt).toFixed(4):0,p50:+pctl(servedWaits,.5).toFixed(4),p95:+pctl(servedWaits,.95).toFixed(4),travel:+sys.elevs.reduce((s,e)=>s+e.dist,0).toFixed(4),cf:loadCnt?+(loadSum/loadCnt/CAP).toFixed(4):0,ledger:paxLedger.length}},
     setHour(h){cfg.startHour=h},
     rtt(){return computeRTT(cfg.floors,cfg.elevs,CAP)},
+    mixSample(n){n=n||10000;const c=[0,0,0];for(let k=0;k<n;k++){const{fr,to}=genOD();c[fr===1?0:to===1?1:2]++}return{in:+(c[0]/n).toFixed(4),out:+(c[1]/n).toFixed(4),inter:+(c[2]/n).toFixed(4)}},
     ledgerSum(){let w=0,j=0;paxLedger.forEach(r=>{w+=r.wait;j+=r.journey});return{rows:paxLedger.length,wsum:+w.toFixed(4),jsum:+j.toFixed(4)}}
   };
 }
