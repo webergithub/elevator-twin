@@ -245,6 +245,15 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
   </div>
 </div>
 
+<!-- Spatial Plot: floor x time trajectories -->
+<div class="fp" id="p-traj" style="top:520px;left:264px;width:238px;height:220px">
+  <div class="fp-hdr" id="h-traj"><span class="fp-ttl" style="color:#58a6ff" data-zh="📈 运行轨迹（楼层×时间）" data-en="📈 Spatial Plot (floor×time)">📈 运行轨迹（楼层×时间）</span><button class="fp-min" onclick="fmin(this)">—</button></div>
+  <div class="fp-bd" style="padding:6px 8px;height:calc(100% - 38px)">
+    <canvas id="trajcv" style="width:100%;height:calc(100% - 16px);display:block"></canvas>
+    <div style="font-size:9px;color:rgba(139,148,158,.45);margin-top:2px" data-zh="实线=轿厢位置 · 圆点=开门 · 窗口 120s" data-en="line=car pos · dot=door open · 120s window">实线=轿厢位置 · 圆点=开门 · 窗口 120s</div>
+  </div>
+</div>
+
 <!-- hint -->
 <div id="hint3d" style="position:fixed;top:59px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(139,148,158,.2);pointer-events:none;user-select:none;z-index:50" data-zh="左键旋转 · 滚轮缩放 · 右键平移" data-en="Rotate · Zoom · Right-drag pan">左键旋转 · 滚轮缩放 · 右键平移</div>
 
@@ -263,7 +272,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.10.0-alpha.4';
+const APP_VERSION='0.11.0-alpha.1';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -374,13 +383,16 @@ function layoutPanels(nE){
   /* Col 1 — p-cfg full height */
   _setPos('p-cfg',C1X,TOP,C1W,AVAIL);
 
-  /* Col 2 — p-opt / p-log (open) / p-twin (open), proportional heights */
-  const OPT_H=Math.min(228,Math.round(AVAIL*.32));
-  const LOG_H=Math.min(252,Math.round(AVAIL*.36));
-  const TWIN_H=Math.max(150,AVAIL-OPT_H-GAP-LOG_H-GAP);
+  /* Col 2 — p-opt / p-log / p-traj (open) / p-twin (collapsed header) */
+  const OPT_H=Math.min(262,Math.round(AVAIL*.34));
+  const LOG_H=Math.min(190,Math.round(AVAIL*.24));
+  const TWIN_HDR=38;
+  const TRAJ_H=Math.max(140,AVAIL-OPT_H-LOG_H-TWIN_HDR-3*GAP);
   _setPos('p-opt',C2X,TOP,C2W,OPT_H);
   _expand('p-log');_setPos('p-log',C2X,TOP+OPT_H+GAP,C2W,LOG_H);
-  _expand('p-twin');_setPos('p-twin',C2X,TOP+OPT_H+GAP+LOG_H+GAP,C2W,TWIN_H);
+  _expand('p-traj');_setPos('p-traj',C2X,TOP+OPT_H+GAP+LOG_H+GAP,C2W,TRAJ_H);
+  _collapse('p-twin');_setPos('p-twin',C2X,TOP+OPT_H+LOG_H+TRAJ_H+3*GAP,C2W,null);
+  const _tw=document.getElementById('p-twin');if(_tw)_tw.style.height='';
 
   /* Col 3 — p-stat (compact) / p-elv */
   const STAT_H=150, ELV_H=Math.min(38+nE*132,Math.max(180,AVAIL-STAT_H-GAP));
@@ -600,6 +612,7 @@ let droppedCnt=0,_pidBase=0; /* health self-check: cull counter + per-session sp
 const servedWaits=[],servedJourneys=[],servedTimes=[]; /* KPI sample buffers, capped at 600 */
 const paxLedger=[]; /* PR-P0-6 per-passenger batch report, capped at 3000 */
 let loadSum=0,loadCnt=0; /* CIBSE capacity factor: mean loaded-departure car occupancy */
+let trajBuf=[],trajT=0; /* PR-P1-4 spatial plot: per-car {t,f,d} samples @0.5s, 600 cap */
 function pctl(a,p){if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(p*s.length))]}
 
 function mkPax(from,to){
@@ -625,7 +638,7 @@ function paxTick(p,dt){
 const logBuf=[];const logT0=performance.now();let logFlushIdx=0,logFlushT=0,snapT=0;
 let _log=[];
 function addLog(msg,col){_log.unshift({ts:getTS(),msg,col:col||'rgba(230,237,243,.8)'});if(_log.length>50)_log.pop();const el=G('elogitems');if(!el)return;el.innerHTML=_log.slice(0,14).map(e=>`<div class="eli" style="color:${e.col}"><span style="color:rgba(139,148,158,.5);margin-right:4px">${e.ts}</span>${e.msg}</div>`).join('')}
-function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOString(),_rel:+((performance.now()-logT0)/1000).toFixed(3),t:type,ev},data));if(logBuf.length>20000){const drop=logBuf.length-20000;logBuf.splice(0,drop);logFlushIdx=Math.max(0,logFlushIdx-drop)}}
+function logEv(type,ev,data){logBuf.push(Object.assign({_ts:new Date().toISOString(),_rel:+((performance.now()-logT0)/1000).toFixed(3),_sim:+simClock.toFixed(2),t:type,ev},data));if(logBuf.length>20000){const drop=logBuf.length-20000;logBuf.splice(0,drop);logFlushIdx=Math.max(0,logFlushIdx-drop)}}
 async function flushLog(){if(location.hostname!=='localhost'&&location.hostname!=='127.0.0.1'&&!window.__ELV_LOG_SINK){logFlushIdx=logBuf.length;return}if(logFlushIdx>=logBuf.length)return;const chunk=logBuf.slice(logFlushIdx);logFlushIdx+=chunk.length;try{await fetch('http://localhost:8766/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch:chunk})})}catch(e){}}
 function dlLog(){const lines=logBuf.map(e=>JSON.stringify(e)).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines],{type:'text/plain'}));a.download=`elv_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.jsonl`;document.body.appendChild(a);a.click();document.body.removeChild(a)}
 window.dlLog=dlLog;
@@ -730,6 +743,30 @@ function updRTT(){
   const satC=req>r.UPPHC?'#f85149':req>r.UPPHC*.8?'#c9944a':'#3fb950';
   const sat=req>r.UPPHC?(lang==='zh'?' ⚠饱和':' ⚠SAT'):'';
   el.innerHTML=`<span style="color:rgba(139,148,158,.8)">RTT</span> <b style="color:#e8b86d">${r.RTT}s</b>　<span style="color:rgba(139,148,158,.8)">${lang==='zh'?'间隔':'INT'}</span> <b style="color:#e8b86d">${r.INT}s</b><br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'理论候梯':'theo wait'}</span> <b style="color:#58a6ff">${r.theoWait}s</b>${cmp}<br><span style="color:rgba(139,148,158,.8)">${lang==='zh'?'5min运力':'5-min cap'}</span> <b style="color:#3fb950">${r.UPPHC}${lang==='zh'?'人':'p'}</b>　<span style="color:rgba(139,148,158,.8)">${lang==='zh'?'需求':'demand'}</span> <b style="color:${satC}">${req}${lang==='zh'?'人':'p'}${sat}</b><br><span style="color:rgba(139,148,158,.5)">P${r.P} S${r.S} H${r.H}</span>`;
+}
+/* PR-P1-4 spatial plot: per-car floor-vs-time polylines, door-open dots, 120s window */
+function updTraj(){
+  const cv=G('trajcv');if(!cv||!sys)return;
+  const bd=cv.parentElement;if(bd&&bd.classList.contains('mz'))return;
+  const w=cv.clientWidth||220,h=cv.clientHeight||150;
+  if(cv.width!==w)cv.width=w;if(cv.height!==h)cv.height=h;
+  const ctx=cv.getContext('2d');ctx.clearRect(0,0,w,h);
+  const WIN=120,t1=Math.max(simClock,1),t0=Math.max(0,t1-WIN),nF=cfg.floors;
+  const X=t=>((t-t0)/Math.max(1e-6,t1-t0))*(w-30)+24,Y=f=>h-13-((f-1)/Math.max(1,nF-1))*(h-26);
+  ctx.font='9px sans-serif';ctx.lineWidth=1;
+  const gridF=nF<=6?Array.from({length:nF},(_,i)=>i+1):[1,Math.ceil(nF/3),Math.ceil(nF*2/3),nF];
+  gridF.forEach(f=>{const y=Y(f);ctx.strokeStyle='rgba(255,255,255,.07)';ctx.beginPath();ctx.moveTo(24,y);ctx.lineTo(w-4,y);ctx.stroke();ctx.fillStyle='rgba(139,148,158,.55)';ctx.fillText(f+'F',2,y+3)});
+  const cols=['#e8b86d','#58a6ff','#3fb950','#cc66ff','#ff6644'];
+  trajBuf.forEach((buf,i)=>{
+    if(!buf||!buf.length)return;const c=cols[i%cols.length];
+    ctx.strokeStyle=c;ctx.lineWidth=1.4;ctx.beginPath();let st=false;
+    for(const s of buf){if(s.t<t0)continue;const x=X(s.t),y=Y(s.f);if(!st){ctx.moveTo(x,y);st=true}else ctx.lineTo(x,y)}
+    ctx.stroke();
+    ctx.fillStyle=c;
+    for(const s of buf){if(s.t<t0||!s.d)continue;ctx.fillRect(X(s.t)-1.5,Y(s.f)-1.5,3,3)}
+  });
+  ctx.fillStyle='rgba(139,148,158,.5)';
+  ctx.fillText(fmtS(t0),24,h-2);const lb=fmtS(t1);ctx.fillText(lb,w-6-ctx.measureText(lb).width,h-2);
 }
 function updOptUI(dem,res,period){
   const ep=G('eperiod'),ed=G('edemand'),ei=G('eidle');
@@ -850,7 +887,7 @@ function setup(c,isInit){
   paxList.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.length=0;svcCnt=0;waitSum=0;spT=0;optT=0;wtT=0;_log=[];
   droppedCnt=0;_pid=0;_pidBase=0;const ib=G('ib');if(ib)ib.style.display='none';
   simClock=0;_acc=0;_warmupAt=0.6;rng=mulberry32(cfg.seed>>>0);optRng=mulberry32((cfg.seed^0x9E3779B9)>>>0);
-  paxLedger.length=0;loadSum=0;loadCnt=0;
+  paxLedger.length=0;loadSum=0;loadCnt=0;trajBuf=[];trajT=0;
   _simHour=(cfg.startHour!=null)?cfg.startHour:new Date().getHours();
   logBuf.length=0;logFlushIdx=0;snapT=0;logFlushT=0;
   dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
@@ -932,8 +969,10 @@ function simTick(){
   });
   paxList.splice(0,paxList.length,...paxList.filter(p=>p.state!=='DONE'));
   if(paxList.length>120){const rm=paxList.filter(p=>p.state==='WAITING').slice(0,paxList.length-120);if(rm.length){droppedCnt+=rm.length;logEv('pax','dropped',{count:rm.length,total:droppedCnt});addLog(`${lang==='zh'?'⚠ 超限丢弃':'⚠ Dropped'} ${rm.length}${lang==='zh'?' 人':' pax'}`,'#f85149')}rm.forEach(p=>{disposeObj(p.mesh);SC.remove(p.mesh)});paxList.splice(0,paxList.length,...paxList.filter(p=>!rm.includes(p)))}
+  trajT+=SUB;
+  if(trajT>=0.5){trajT=0;for(let i=0;i<cfg.elevs;i++){const s=_twinMode==='ext'?{t:simClock,f:(_extElvState[i]?.floor)||1,d:((_extElvState[i]?.doorPct)||0)>.05?1:0}:{t:simClock,f:sys.elevs[i].pos,d:sys.elevs[i].dp>.05?1:0};(trajBuf[i]=trajBuf[i]||[]).push(s);if(trajBuf[i].length>600)trajBuf[i].shift()}}
   optT+=SUB;if(optT>=30){optT=0;runOpt()}
-  snapT+=SUB;if(snapT>=5){snapT=0;logSnap();updRTT()}
+  snapT+=SUB;if(snapT>=5){snapT=0;logSnap();updRTT();updTraj()}
 }
 function simStep(sdt){if(sdt<=0)return;_acc+=sdt;let guard=0;while(_acc>=SUB&&guard++<500000){simTick();_acc-=SUB}}
 function animate(now){
@@ -943,7 +982,7 @@ function animate(now){
   const all=sys.getAll();
   e3ds?.forEach((e,i)=>e.update(dt,all[i]));
   paxList.forEach(p=>paxTick(p,dt));
-  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();updRTT();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
+  wtT+=dt;if(wtT>=.5){wtT=0;updWaiting();updRTT();updTraj();const tm=G('etmode');if(tm){const m=trafficMode();tm.textContent='· '+(TMODE_N[m]?.[lang]||m)}}
   logFlushT+=dt;if(logFlushT>=10){logFlushT=0;flushLog()}
   if(_floorLEDs.length){const wbf=new Array(cfg.floors).fill(0);paxList.forEach(p=>{if(p.state==='WAITING'||p.state==='BOARDING')wbf[p.from-1]=(wbf[p.from-1]||0)+1});_floorLEDs.forEach((led,f)=>{if(led?.material)led.material.emissiveIntensity=Math.min(1.2,(wbf[f]||0)*.4)})}
   updCards(all);updStats();R.render(SC,CAM);
@@ -964,6 +1003,8 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
     setHour(h){cfg.startHour=h},
     rtt(){return computeRTT(cfg.floors,cfg.elevs,CAP)},
     mixSample(n){n=n||10000;const c=[0,0,0];for(let k=0;k<n;k++){const{fr,to}=genOD();c[fr===1?0:to===1?1:2]++}return{in:+(c[0]/n).toFixed(4),out:+(c[1]/n).toFixed(4),inter:+(c[2]/n).toFixed(4)}},
+    traj(i){return i==null?trajBuf.map(b=>b?b.length:0):trajBuf[i]||[]},
+    events(ev,n){return logBuf.filter(x=>!ev||x.ev===ev).slice(-(n||60))},
     ledgerSum(){let w=0,j=0;paxLedger.forEach(r=>{w+=r.wait;j+=r.journey});return{rows:paxLedger.length,wsum:+w.toFixed(4),jsum:+j.toFixed(4)}}
   };
 }
