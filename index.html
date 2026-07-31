@@ -163,6 +163,11 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
     <div id="elogitems" style="max-height:180px;overflow:hidden"></div>
     <button class="fpa" onclick="dlLog()" style="margin-top:5px;background:rgba(201,148,74,.1);color:#c9944a;border:0.5px solid rgba(201,148,74,.3)" data-zh="⬇ 下载完整日志" data-en="⬇ Download Full Log">⬇ 下载完整日志</button>
     <button class="fpa" onclick="dlBatch()" style="margin-top:3px;background:rgba(63,185,80,.1);color:#3fb950;border:0.5px solid rgba(63,185,80,.3)" data-zh="⬇ 批次报告 CSV（逐乘客）" data-en="⬇ Batch Report CSV (per-pax)">⬇ 批次报告 CSV（逐乘客）</button>
+    <div style="display:flex;gap:4px;margin-top:3px">
+      <button class="fpa" id="btn-save" onclick="saveRun()" style="flex:1;margin-top:0;background:rgba(88,166,255,.12);color:#58a6ff;border:0.5px solid rgba(88,166,255,.3)" data-zh="☁ 保存运行" data-en="☁ Save Run">☁ 保存运行</button>
+      <button class="fpa" id="btn-arch" onclick="openArchive()" style="flex:1;margin-top:0;background:rgba(255,255,255,.05);color:rgba(139,148,158,.9);border:0.5px solid rgba(255,255,255,.15)" data-zh="📚 历史归档" data-en="📚 Archive">📚 历史归档</button>
+    </div>
+    <div id="api-hint" style="font-size:10px;color:rgba(139,148,158,.4);margin-top:3px"></div>
   </div>
 </div>
 
@@ -245,6 +250,15 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
   </div>
 </div>
 
+<!-- Run archive overlay (backend-backed; absent when API unreachable — P-1) -->
+<div id="arch" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);width:min(760px,92vw);max-height:76vh;z-index:500;background:rgba(13,10,7,.98);border:0.5px solid rgba(88,166,255,.35);border-radius:12px;color:#e6edf3;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.6)">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:0.5px solid rgba(255,255,255,.1)">
+    <span style="font-size:13px;font-weight:500;color:#58a6ff" data-zh="☁ 运行归档（服务端）" data-en="☁ Run Archive (server)">☁ 运行归档（服务端）</span>
+    <button onclick="closeArchive()" style="background:rgba(255,255,255,.08);border:none;color:#e6edf3;width:22px;height:22px;border-radius:5px;cursor:pointer;font-size:13px;line-height:1">×</button>
+  </div>
+  <div id="arch-bd" style="padding:8px 14px 12px;overflow-y:auto;max-height:calc(76vh - 42px);font-size:12px"></div>
+</div>
+
 <!-- Spatial Plot: floor x time trajectories -->
 <div class="fp" id="p-traj" style="top:520px;left:264px;width:238px;height:220px">
   <div class="fp-hdr" id="h-traj"><span class="fp-ttl" style="color:#58a6ff" data-zh="📈 运行轨迹（楼层×时间）" data-en="📈 Spatial Plot (floor×time)">📈 运行轨迹（楼层×时间）</span><button class="fp-min" onclick="fmin(this)">—</button></div>
@@ -272,7 +286,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.11.0-alpha.1';
+const APP_VERSION='0.12.0-alpha.1';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -416,7 +430,7 @@ const SPD=2.5,ACC=1.8,DHOLD=3.0,DANIM=0.8,ARR=0.03,CAP=10;
 const DOPEN_MIN=1.6,TPP=0.75,DHOLD_MAX=6.0; /* load-dependent door dwell: base + per-passenger transfer time */
 const shX=i=>i*(SW+SG),bW=n=>n*SW+(n-1)*SG;
 function getTS(){const t=new Date();return`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`}
-function fmtS(s){if(s<60)return s.toFixed(0)+'s';const m=Math.floor(s/60),r=Math.round(s%60);return r?`${m}m${r}s`:`${m}m`}
+function fmtS(s){const t=Math.round(s);if(t<60)return t+'s';const m=Math.floor(t/60),r=t%60;return r?`${m}m${r}s`:`${m}m`}
 function G(id){return document.getElementById(id)}
 /* PR-P0-2 deterministic PRNG — two independent streams: pax/traffic vs optimizer,
    so annealing draws never perturb the passenger event sequence */
@@ -652,6 +666,82 @@ function dlBatch(){
   addLog(`${lang==='zh'?'已导出批次报告':'Batch report exported'} (${paxLedger.length})`,'#3fb950');
 }
 window.dlBatch=dlBatch;
+
+/* ── Backend (optional) — design principle P-1: the simulation NEVER depends on this.
+   If the API is unreachable the buttons disable themselves and everything else runs on. ── */
+const API_BASE=new URLSearchParams(location.search).get('api')||'/elevator-api';
+let _apiOk=false;
+async function apiFetch(path,opt,ms){
+  const c=new AbortController(),tm=setTimeout(()=>c.abort(),ms||6000);
+  try{const r=await fetch(API_BASE+path,{...opt,signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}
+  finally{clearTimeout(tm)}
+}
+async function checkApi(){
+  const hint=G('api-hint');
+  try{const h=await apiFetch('/health',{},3500);_apiOk=true;
+    if(hint)hint.textContent=(lang==='zh'?'后台在线 v':'API online v')+h.ver+' · '+h.runs+(lang==='zh'?' 条归档':' runs');
+  }catch(e){_apiOk=false;
+    if(hint)hint.textContent=lang==='zh'?'后台离线 — 仿真与导出不受影响':'API offline — sim & export unaffected';
+  }
+  [['btn-save'],['btn-arch']].forEach(([id])=>{const b=G(id);if(b){b.disabled=!_apiOk;b.style.opacity=_apiOk?'1':'.4';b.style.cursor=_apiOk?'pointer':'not-allowed';b.title=_apiOk?'':(lang==='zh'?'后台不可用':'backend unavailable')}});
+  return _apiOk;
+}
+async function saveRun(){
+  if(!_apiOk){addLog(lang==='zh'?'后台不可用，无法保存':'Backend unavailable','#f85149');return}
+  if(!svcCnt){addLog(lang==='zh'?'尚无已送乘客，先跑一会儿':'No served passengers yet','#c9944a');return}
+  const kpi={simClock:+simClock.toFixed(2),spawned:_pid-_pidBase,served:svcCnt,dropped:droppedCnt,
+    avgWait:+(waitSum/svcCnt).toFixed(3),p50:+pctl(servedWaits,.5).toFixed(2),p95:+pctl(servedWaits,.95).toFixed(2),
+    travel_m:+(sys.elevs.reduce((s,e)=>s+e.dist,0)*FH).toFixed(1),cf:loadCnt?+(loadSum/loadCnt/CAP).toFixed(3):0};
+  const pax=paxLedger.slice(0,3000).map(r=>({id:r.id,from:r.from,to:r.to,spawn:+r.spawn.toFixed(2),wait:+r.wait.toFixed(2),journey:+r.journey.toFixed(2)}));
+  try{
+    const r=await apiFetch('/runs',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ver:APP_VERSION,algo:sys.algo,cfg:{...cfg,startHour:_simHour},kpi,pax})},8000);
+    addLog(`${lang==='zh'?'已保存归档':'Saved'} ${r.id} (${r.pax_rows}${lang==='zh'?' 条账本':' pax'})`,'#58a6ff');
+    checkApi();
+  }catch(e){addLog((lang==='zh'?'保存失败：':'Save failed: ')+e.message,'#f85149')}
+}
+window.saveRun=saveRun;
+function closeArchive(){const a=G('arch');if(a)a.style.display='none'}
+window.closeArchive=closeArchive;
+async function openArchive(){
+  const a=G('arch'),bd=G('arch-bd');if(!a||!bd)return;
+  a.style.display='block';bd.innerHTML=`<div style="color:rgba(139,148,158,.6)">${lang==='zh'?'加载中…':'Loading…'}</div>`;
+  try{
+    const d=await apiFetch('/runs?limit=50');
+    if(!d.runs.length){bd.innerHTML=`<div style="color:rgba(139,148,158,.5)">${lang==='zh'?'暂无归档，先点「保存运行」':'Empty — hit Save Run first'}</div>`;return}
+    const th=(s)=>`<th style="text-align:left;padding:4px 6px;color:rgba(139,148,158,.7);font-weight:500;border-bottom:0.5px solid rgba(255,255,255,.12);white-space:nowrap">${s}</th>`;
+    const F=lang==='zh';
+    bd.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px"><tr>
+      ${th(F?'时间':'time')}${th(F?'版本':'ver')}${th(F?'种子':'seed')}${th(F?'配置':'config')}${th(F?'算法':'algo')}
+      ${th(F?'时长':'dur')}${th(F?'已送':'served')}${th(F?'均等':'avg')}${th('P95')}${th(F?'均载':'CF')}${th('')}</tr>
+      ${d.runs.map(r=>{const k=r.kpi||{};return `<tr style="border-bottom:0.5px solid rgba(255,255,255,.05)">
+        <td style="padding:4px 6px;color:rgba(139,148,158,.6);white-space:nowrap">${new Date(r.created_at).toLocaleString()}</td>
+        <td style="padding:4px 6px;color:rgba(139,148,158,.6)">${r.ver||'—'}</td>
+        <td style="padding:4px 6px;color:#e8b86d">${r.seed}</td>
+        <td style="padding:4px 6px;white-space:nowrap">${r.floors}F/${r.elevs}E ${r.hour!=null?r.hour+'h':''} ${r.pop||''}p${r.demand?'/'+r.demand+'%':''}</td>
+        <td style="padding:4px 6px;color:#c9944a">${r.algo||'—'}</td>
+        <td style="padding:4px 6px">${k.simClock?fmtS(k.simClock):'—'}</td>
+        <td style="padding:4px 6px">${k.served??'—'}</td>
+        <td style="padding:4px 6px;color:#58a6ff">${k.avgWait!=null?k.avgWait+'s':'—'}</td>
+        <td style="padding:4px 6px;color:${k.p95>60?'#f85149':k.p95>30?'#c9944a':'#3fb950'}">${k.p95!=null?k.p95+'s':'—'}</td>
+        <td style="padding:4px 6px">${k.cf!=null?Math.round(k.cf*100)+'%':'—'}</td>
+        <td style="padding:4px 6px"><button onclick="replayRun('${r.id}')" style="font-size:10px;padding:2px 7px;border:0.5px solid rgba(63,185,80,.45);background:rgba(63,185,80,.1);color:#3fb950;border-radius:4px;cursor:pointer;white-space:nowrap">${F?'复现':'replay'}</button></td></tr>`}).join('')}
+      </table><div style="font-size:10px;color:rgba(139,148,158,.4);margin-top:6px">${F?'「复现」按归档的种子与配置重建场景 —— 相同种子必得相同结果（P-3）':'Replay rebuilds the scene from the stored seed+config — same seed, same result (P-3)'}</div>`;
+  }catch(e){bd.innerHTML=`<div style="color:#f85149">${lang==='zh'?'加载失败：':'Failed: '}${e.message}</div>`}
+}
+window.openArchive=openArchive;
+async function replayRun(id){
+  try{
+    const r=await apiFetch('/runs/'+id);
+    const set=(el,v)=>{const e=G(el);if(e&&v!=null){e.value=v;e.dispatchEvent(new Event('input'))}};
+    set('esfl',r.floors);set('esel',r.elevs);set('espp',r.pop);set('esdm',r.demand);set('eseed',r.seed);set('ehour',r.hour);
+    const tr=G('etraffic');if(tr&&r.traffic){tr.value=r.traffic;tr.dispatchEvent(new Event('change'))}
+    const al=G('ealgo');if(al&&r.algo){al.value=r.algo;al.dispatchEvent(new Event('change'))}
+    closeArchive();setup(cfg);
+    addLog(`${lang==='zh'?'已复现归档':'Replaying'} ${id} (seed ${r.seed})`,'#3fb950');
+  }catch(e){addLog((lang==='zh'?'复现失败：':'Replay failed: ')+e.message,'#f85149')}
+}
+window.replayRun=replayRun;
 function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,dropped:droppedCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))});integrityCheck(w+r)}
 /* Health self-check: spawned must equal alive + served + dropped (passenger conservation) */
 function integrityCheck(alive){
@@ -1012,6 +1102,8 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
 // Init
 applyLang();
 setup(cfg,true);
+checkApi();   /* non-blocking: failure only disables the two backend buttons (P-1) */
+window.addEventListener('keydown',e=>{if(e.key==='Escape')closeArchive()});
 setSpeed(1,true);
 requestAnimationFrame(animate);
 </script>
