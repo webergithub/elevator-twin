@@ -25,4 +25,4 @@ curl localhost:3699/elevator-api/health
 单请求 ≤1MB（超限返回 413）、单 IP 写 ≤30/分钟（超限 429）、账本 ≤3000 行、库软上限 500MB（超出 health 报 degraded）。
 
 ## 部署
-见《后台服务规划 v1.0》附录 B。要点：PM2 name `elevator-api`，nginx 反代前缀 **`/elevator-api/`**（`/api/` 已被 invite-api 占用），端口 3600。
+见《后台服务规划 v1.0》附录 B。要点：PM2 name `elevator-api`，nginx 反代前缀 **`/elevator-api/`**（`/api/` 已被 invite-api 占用），端口 3610。
