@@ -116,6 +116,7 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
     <button class="fpa" id="ebem" style="background:#f85149;color:#fff" data-zh="全体紧急停梯" data-en="Emergency Stop All">全体紧急停梯</button>
     <button class="fpa" id="ebcl" style="background:rgba(255,255,255,.08);color:#e6edf3;border:0.5px solid rgba(255,255,255,.18)" data-zh="清除 / 恢复" data-en="Clear / Resume">清除 / 恢复</button>
     <button class="fpa" onclick="dispatchAll()" style="background:rgba(201,148,74,.12);color:#c9944a;border:0.5px solid rgba(201,148,74,.35)" data-zh="⚡ 一键调度" data-en="⚡ Dispatch All">⚡ 一键调度</button>
+    <button class="fpa" onclick="openSweep()" style="background:rgba(88,166,255,.12);color:#58a6ff;border:0.5px solid rgba(88,166,255,.32)" data-zh="🔬 参数扫描 / A-B 对比" data-en="🔬 Parameter Sweep / A-B">🔬 参数扫描 / A-B 对比</button>
     <button class="fpa" onclick="resetLayout()" style="background:rgba(255,255,255,.05);color:rgba(139,148,158,.9);border:0.5px solid rgba(255,255,255,.15)" data-zh="🧭 重置窗口布局" data-en="🧭 Reset Layout">🧭 重置窗口布局</button>
     <hr class="hr">
     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;padding:2px 0" onclick="toggleDynParams()">
@@ -259,6 +260,29 @@ body{background:#0d0a07;overflow:hidden;font-family:-apple-system,BlinkMacSystem
   <div id="arch-bd" style="padding:8px 14px 12px;overflow-y:auto;max-height:calc(76vh - 42px);font-size:12px"></div>
 </div>
 
+<!-- Parameter sweep / A-B scoreboard (in-browser, deterministic: same seed for every cell) -->
+<div id="swp" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);width:min(820px,94vw);max-height:78vh;z-index:500;background:rgba(13,10,7,.98);border:0.5px solid rgba(88,166,255,.35);border-radius:12px;color:#e6edf3;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.6)">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:0.5px solid rgba(255,255,255,.1)">
+    <span style="font-size:13px;font-weight:500;color:#58a6ff" data-zh="🔬 参数扫描 / A-B 对比" data-en="🔬 Parameter Sweep / A-B">🔬 参数扫描 / A-B 对比</span>
+    <button onclick="closeSweep()" style="background:rgba(255,255,255,.08);border:none;color:#e6edf3;width:22px;height:22px;border-radius:5px;cursor:pointer;font-size:13px;line-height:1">×</button>
+  </div>
+  <div style="padding:9px 14px;border-bottom:0.5px solid rgba(255,255,255,.07);display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div><div style="font-size:10px;color:rgba(139,148,158,.7);margin-bottom:2px" data-zh="梯数范围" data-en="Cars">梯数范围</div>
+      <select id="sw-elv" style="width:96px;padding:3px 5px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:11px">
+        <option value="1,2,3,4,5">1–5</option><option value="2,3,4" selected>2–4</option><option value="3">仅当前3</option></select></div>
+    <div><div style="font-size:10px;color:rgba(139,148,158,.7);margin-bottom:2px" data-zh="算法" data-en="Algorithms">算法</div>
+      <select id="sw-algo" style="width:130px;padding:3px 5px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:11px">
+        <option value="LOOK,NEAREST,DCS" selected>LOOK / NEAREST / DCS</option><option value="LOOK">仅 LOOK</option></select></div>
+    <div><div style="font-size:10px;color:rgba(139,148,158,.7);margin-bottom:2px" data-zh="每格时长" data-en="Duration">每格时长</div>
+      <select id="sw-dur" style="width:88px;padding:3px 5px;background:#1a1208;color:#e6edf3;border:0.5px solid rgba(255,255,255,.15);border-radius:5px;font-size:11px">
+        <option value="300">5 min</option><option value="600" selected>10 min</option><option value="1800">30 min</option></select></div>
+    <button id="sw-run" onclick="runSweep()" style="padding:5px 14px;border:0.5px solid rgba(88,166,255,.4);border-radius:6px;background:rgba(88,166,255,.16);color:#58a6ff;font-size:12px;font-weight:500;cursor:pointer" data-zh="开始扫描" data-en="Run Sweep">开始扫描</button>
+    <button id="sw-stop" onclick="stopSweep()" style="display:none;padding:5px 12px;border:0.5px solid rgba(248,81,73,.4);border-radius:6px;background:rgba(248,81,73,.12);color:#f85149;font-size:12px;cursor:pointer" data-zh="中止" data-en="Stop">中止</button>
+    <span id="sw-prog" style="font-size:11px;color:rgba(139,148,158,.7)"></span>
+  </div>
+  <div id="sw-bd" style="padding:8px 14px 12px;overflow-y:auto;max-height:calc(78vh - 96px);font-size:12px"></div>
+</div>
+
 <!-- Spatial Plot: floor x time trajectories -->
 <div class="fp" id="p-traj" style="top:520px;left:264px;width:238px;height:220px">
   <div class="fp-hdr" id="h-traj"><span class="fp-ttl" style="color:#58a6ff" data-zh="📈 运行轨迹（楼层×时间）" data-en="📈 Spatial Plot (floor×time)">📈 运行轨迹（楼层×时间）</span><button class="fp-min" onclick="fmin(this)">—</button></div>
@@ -286,7 +310,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 /* ════════════════════════════════════════════════════════════
    I18N
    ════════════════════════════════════════════════════════════ */
-const APP_VERSION='0.12.0-alpha.1';
+const APP_VERSION='0.13.0-alpha.1';
 {const v=document.getElementById('app-ver');if(v)v.textContent='v'+APP_VERSION;}
 const LANG_KEY = 'opcstudio_lang';
 let lang = localStorage.getItem(LANG_KEY) || 'zh';
@@ -742,6 +766,98 @@ async function replayRun(id){
   }catch(e){addLog((lang==='zh'?'复现失败：':'Replay failed: ')+e.message,'#f85149')}
 }
 window.replayRun=replayRun;
+
+/* ── Parameter sweep / A-B scoreboard ──────────────────────────────
+   Every cell runs with the SAME seed, so differences are attributable to the
+   swept parameters rather than to luck — this is what E1's determinism bought. */
+let _swpRun=false,_swpAbort=false,_swpRows=[];
+function openSweep(){const s=G('swp');if(s)s.style.display='block'}
+function closeSweep(){if(_swpRun){_swpAbort=true}const s=G('swp');if(s)s.style.display='none'}
+function stopSweep(){_swpAbort=true}
+window.openSweep=openSweep;window.closeSweep=closeSweep;window.stopSweep=stopSweep;
+async function runSweep(){
+  if(_swpRun)return;
+  const elvs=(G('sw-elv').value||'3').split(',').map(Number);
+  const algos=(G('sw-algo').value||'LOOK').split(',');
+  const dur=+G('sw-dur').value||600;
+  const cells=[];elvs.forEach(e=>algos.forEach(a=>cells.push({elvs:e,algo:a})));
+  _swpRun=true;_swpAbort=false;_swpRows=[];
+  G('sw-run').style.display='none';G('sw-stop').style.display='';
+  const wasPaused=_paused;if(!_paused)togglePause();           /* stop the live loop driving sim */
+  const keep={elvs:cfg.elevs,algo:G('ealgo').value};
+  const bd=G('sw-bd');
+  try{
+    for(let i=0;i<cells.length;i++){
+      if(_swpAbort)break;
+      const c=cells[i];
+      G('sw-prog').textContent=`${lang==='zh'?'进行中':'running'} ${i+1}/${cells.length} — ${c.elvs}${lang==='zh'?'梯':'car'} ${c.algo}`;
+      await new Promise(r=>setTimeout(r,0));                    /* let the UI paint */
+      const se=G('esel');se.value=c.elvs;se.dispatchEvent(new Event('input'));
+      G('ealgo').value=c.algo;
+      setup(cfg);                                               /* same seed every cell */
+      simStep(dur);
+      const rtt=computeRTT(cfg.floors,c.elvs,CAP);
+      _swpRows.push({elvs:c.elvs,algo:c.algo,served:svcCnt,dropped:droppedCnt,
+        avg:svcCnt?+(waitSum/svcCnt).toFixed(2):0,p50:+pctl(servedWaits,.5).toFixed(2),
+        p95:+pctl(servedWaits,.95).toFixed(2),cf:loadCnt?+(loadSum/loadCnt/CAP*100).toFixed(0):0,
+        energy:+(sys.elevs.reduce((s,e)=>s+e.dist*FH+e.starts*8,0)).toFixed(0),theoInt:rtt.INT});
+      renderSweep(dur);
+    }
+  }finally{
+    const se=G('esel');se.value=keep.elvs;se.dispatchEvent(new Event('input'));
+    G('ealgo').value=keep.algo;setup(cfg);
+    if(!wasPaused&&_paused)togglePause();
+    _swpRun=false;G('sw-run').style.display='';G('sw-stop').style.display='none';
+    G('sw-prog').textContent=_swpAbort?(lang==='zh'?'已中止':'aborted'):(lang==='zh'?'完成':'done')+` · ${_swpRows.length}`;
+    renderSweep(dur);
+  }
+}
+window.runSweep=runSweep;
+function renderSweep(dur){
+  const bd=G('sw-bd');if(!bd)return;
+  if(!_swpRows.length){bd.innerHTML=`<div style="color:rgba(139,148,158,.5)">${lang==='zh'?'选择范围后点「开始扫描」；每格用相同种子，差异只来自被扫参数':'Pick a range and hit Run; every cell shares the seed so differences come from the swept parameters'}</div>`;return}
+  const F=lang==='zh';
+  const ranked=[..._swpRows].sort((a,b)=>a.p95-b.p95||a.avg-b.avg);
+  const best=ranked[0];
+  const th=s=>`<th style="text-align:left;padding:4px 6px;color:rgba(139,148,158,.7);font-weight:500;border-bottom:0.5px solid rgba(255,255,255,.12);white-space:nowrap">${s}</th>`;
+  bd.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px"><tr>
+    ${th('#')}${th(F?'梯数':'cars')}${th(F?'算法':'algo')}${th(F?'已送':'served')}${th(F?'均等待':'avg wait')}${th('P50')}${th('P95')}${th(F?'均载':'CF')}${th(F?'能耗':'energy')}${th(F?'理论间隔':'theo INT')}</tr>
+    ${ranked.map((r,i)=>{const win=r===best;return `<tr style="border-bottom:0.5px solid rgba(255,255,255,.05);${win?'background:rgba(63,185,80,.10)':''}">
+      <td style="padding:4px 6px;color:${win?'#3fb950':'rgba(139,148,158,.6)'}">${win?'★':i+1}</td>
+      <td style="padding:4px 6px">${r.elvs}</td>
+      <td style="padding:4px 6px;color:#c9944a">${r.algo}</td>
+      <td style="padding:4px 6px">${r.served}${r.dropped?`<span style="color:#f85149"> -${r.dropped}</span>`:''}</td>
+      <td style="padding:4px 6px;color:#58a6ff">${r.avg}s</td>
+      <td style="padding:4px 6px">${r.p50}s</td>
+      <td style="padding:4px 6px;color:${r.p95>60?'#f85149':r.p95>30?'#c9944a':'#3fb950'};font-weight:500">${r.p95}s</td>
+      <td style="padding:4px 6px">${r.cf}%</td>
+      <td style="padding:4px 6px;color:rgba(139,148,158,.75)">${r.energy}</td>
+      <td style="padding:4px 6px;color:rgba(139,148,158,.5)">${r.theoInt}s</td></tr>`}).join('')}
+    </table>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <button onclick="applyBest()" style="padding:4px 11px;border:0.5px solid rgba(63,185,80,.45);border-radius:5px;background:rgba(63,185,80,.1);color:#3fb950;font-size:11px;cursor:pointer">${F?'应用最优配置':'Apply best'}</button>
+      <button onclick="dlSweep()" style="padding:4px 11px;border:0.5px solid rgba(201,148,74,.35);border-radius:5px;background:rgba(201,148,74,.1);color:#c9944a;font-size:11px;cursor:pointer">${F?'⬇ 导出 CSV':'⬇ CSV'}</button>
+      <span style="font-size:10px;color:rgba(139,148,158,.45)">${F?`按 P95 升序排名 · 每格 ${fmtS(dur)} 仿真 · 种子 ${cfg.seed} · ${cfg.floors}层 ${cfg.population}人 ${cfg.demand}%/5min`:`ranked by P95 · ${fmtS(dur)} each · seed ${cfg.seed} · ${cfg.floors}F ${cfg.population}p ${cfg.demand}%/5min`}</span>
+    </div>`;
+}
+function applyBest(){
+  if(!_swpRows.length)return;
+  const b=[..._swpRows].sort((a,b)=>a.p95-b.p95||a.avg-b.avg)[0];
+  const se=G('esel');se.value=b.elvs;se.dispatchEvent(new Event('input'));
+  G('ealgo').value=b.algo;setup(cfg);closeSweep();
+  addLog(`${lang==='zh'?'已应用最优':'Applied best'}: ${b.elvs}${lang==='zh'?'梯':'car'} ${b.algo} (P95 ${b.p95}s)`,'#3fb950');
+}
+window.applyBest=applyBest;
+function dlSweep(){
+  if(!_swpRows.length)return;
+  const hdr='cars,algo,served,dropped,avg_wait_s,p50_s,p95_s,cf_pct,energy,theo_interval_s,seed,floors,population,demand_pct';
+  const rows=[..._swpRows].sort((a,b)=>a.p95-b.p95).map(r=>`${r.elvs},${r.algo},${r.served},${r.dropped},${r.avg},${r.p50},${r.p95},${r.cf},${r.energy},${r.theoInt},${cfg.seed},${cfg.floors},${cfg.population},${cfg.demand}`);
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([[hdr,...rows].join('\n')+'\n'],{type:'text/csv'}));
+  a.download=`elv_sweep_seed${cfg.seed}_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'_')}.csv`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  addLog(lang==='zh'?'扫描结果已导出':'Sweep exported','#3fb950');
+}
+window.dlSweep=dlSweep;
 function logSnap(){if(!sys)return;const all=sys.getAll();const w=paxList.filter(p=>['WAITING','BOARDING'].includes(p.state)).length,r=paxList.filter(p=>p.state==='RIDING').length;logEv('stat','snap',{waiting:w,riding:r,served:svcCnt,dropped:droppedCnt,avg_wait_s:svcCnt?+(waitSum/svcCnt).toFixed(1):0,elevs:all.map(e=>({id:e.id,f:+e.f.toFixed(2),state:e.state,dir:e.dir,stops:e.stops}))});integrityCheck(w+r)}
 /* Health self-check: spawned must equal alive + served + dropped (passenger conservation) */
 function integrityCheck(alive){
@@ -978,6 +1094,7 @@ function setup(c,isInit){
   droppedCnt=0;_pid=0;_pidBase=0;const ib=G('ib');if(ib)ib.style.display='none';
   simClock=0;_acc=0;_warmupAt=0.6;rng=mulberry32(cfg.seed>>>0);optRng=mulberry32((cfg.seed^0x9E3779B9)>>>0);
   paxLedger.length=0;loadSum=0;loadCnt=0;trajBuf=[];trajT=0;
+  servedWaits.length=0;servedJourneys.length=0;servedTimes.length=0; /* percentile/throughput pools are per-session, not cumulative */
   _simHour=(cfg.startHour!=null)?cfg.startHour:new Date().getHours();
   logBuf.length=0;logFlushIdx=0;snapT=0;logFlushT=0;
   dataFeed.length=0;updFeed();_extElvState={};_camYOff=0;
@@ -1103,7 +1220,8 @@ if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
 applyLang();
 setup(cfg,true);
 checkApi();   /* non-blocking: failure only disables the two backend buttons (P-1) */
-window.addEventListener('keydown',e=>{if(e.key==='Escape')closeArchive()});
+window.addEventListener('keydown',e=>{if(e.key==='Escape'){closeArchive();closeSweep()}});
+renderSweep(600);
 setSpeed(1,true);
 requestAnimationFrame(animate);
 </script>
